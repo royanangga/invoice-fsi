@@ -130,7 +130,7 @@ button .spinner { border-color: rgba(255,255,255,0.35); border-top-color:#fff; }
 }
 .nav-item .nav-icon { width:18px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
 .nav-item:hover { background: rgba(255,255,255,0.08); color:#fff; }
-.nav-item.active { background: rgba(14,124,123,0.25); color:#fff; justify-content:center; text-align:center; padding-left:12px; }
+.nav-item.active { background: rgba(14,124,123,0.25); color:#fff; }
 .nav-item.active::before {
   content:''; position:absolute; left:0; top:50%; transform:translateY(-50%);
   width:4px; height:60%; border-radius:0 4px 4px 0; background: var(--teal-light);
@@ -245,8 +245,18 @@ table.list tr.row-selected td { background:rgba(14,124,123,0.07); }
 }
 .spacer { flex:1; }
 
-button { cursor:pointer; border:none; border-radius:6px; padding: 9px 16px; font-size:13px; font-weight:600; transition: background .15s ease, transform .12s ease, box-shadow .15s ease; }
+button { cursor:pointer; border:none; border-radius:6px; padding: 9px 16px; font-size:13px; font-weight:600; transition: background .15s ease, transform .12s ease, box-shadow .15s ease; position:relative; overflow:hidden; }
 button:active { transform: scale(0.96); }
+@keyframes btnPop { 0% { transform: scale(1); } 35% { transform: scale(0.93); } 100% { transform: scale(1); } }
+button.btn-pop { animation: btnPop .28s cubic-bezier(.34,1.56,.64,1); }
+@keyframes btnRipple { from { transform: scale(0); opacity:.45; } to { transform: scale(2.6); opacity:0; } }
+button .ripple {
+  position:absolute; width:14px; height:14px; border-radius:50%;
+  background: rgba(255,255,255,0.75); pointer-events:none;
+  transform: translate(-50%, -50%) scale(0);
+  animation: btnRipple .5s ease-out forwards;
+}
+.btn-secondary .ripple, .btn-danger .ripple { background: rgba(15,41,66,0.18); }
 .btn-primary { background: var(--teal); color:#fff; }
 .btn-primary:hover { background:#0b6564; box-shadow: 0 3px 10px rgba(14,124,123,0.3); }
 .btn-secondary { background:#fff; border:1px solid var(--border) !important; color:var(--text); }
