@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="style.css">
 <style>
   body { display:flex; align-items:center; justify-content:center; min-height:100vh; }
-  .login-card { background:#fff; border-radius:10px; padding:32px; width:100%; max-width:360px; box-shadow:0 2px 12px rgba(0,0,0,0.08); }
+  .login-card { background:#fff; border-radius:10px; padding:32px; width:100%; max-width:360px; box-shadow:0 2px 12px rgba(0,0,0,0.08); transition: opacity .25s ease; }
   .login-card h1 { font-size:18px; color:var(--navy); margin:0 0 4px; text-align:center; }
   .login-card .sub { text-align:center; color:var(--muted); font-size:13px; margin-bottom:24px; }
   .login-card .form-group { margin-bottom:14px; }
@@ -19,7 +19,7 @@
 </style>
 </head>
 <body>
-  <div class="login-card">
+  <div class="login-card" id="loginCard" style="opacity:0">
     <h1>Aplikasi Invoice</h1>
     <div class="sub">PT. Fuji Seat Indonesia</div>
     <form id="loginForm">
@@ -36,6 +36,17 @@
     </form>
   </div>
   <script>
+    // Kalau sudah login (cookie sesi masih valid), langsung lempar ke halaman utama
+    // supaya tidak bisa balik ke form login selama masih dalam sesi aktif.
+    (async () => {
+      try {
+        const res = await fetch('/api/me');
+        const me = await res.json();
+        if (me) { window.location.replace('index.html'); return; }
+      } catch (e) { /* abaikan, anggap belum login */ }
+      document.getElementById('loginCard').style.opacity = '1';
+    })();
+
     document.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn || btn.disabled) return;
