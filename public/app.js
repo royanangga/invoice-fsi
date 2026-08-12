@@ -892,6 +892,11 @@ async function openForm(existing) {
   `;
   document.body.appendChild(overlay);
 
+  const customerSel = overlay.querySelector('#f_customer');
+  const currencySel = overlay.querySelector('#f_currency');
+  const attnInput = overlay.querySelector('#f_attn');
+  const exRateInput = overlay.querySelector('#f_exrate');
+
   function renderItems() {
     const body = overlay.querySelector('#itemsBody');
     body.innerHTML = items.map((it, i) => `
@@ -915,14 +920,6 @@ async function openForm(existing) {
     });
     updateTotalsPreview();
   }
-  renderItems();
-
-  overlay.querySelector('#btnAddItem').onclick = () => { items.push({ item_name: '', qty: 1, amount: 0 }); renderItems(); };
-
-  const customerSel = overlay.querySelector('#f_customer');
-  const currencySel = overlay.querySelector('#f_currency');
-  const attnInput = overlay.querySelector('#f_attn');
-  const exRateInput = overlay.querySelector('#f_exrate');
 
   // Untuk mata uang asing (reimbursement ke perusahaan luar negeri): Jumlah item selalu
   // diisi dalam IDR, Exchange Rate wajib diisi, dan amount valuta dihitung otomatis.
@@ -949,6 +946,10 @@ async function openForm(existing) {
       preview.textContent = `Total: IDR ${totalIdr.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — isi Exchange Rate untuk melihat nominal ${currencySel.value}`;
     }
   }
+
+  renderItems();
+
+  overlay.querySelector('#btnAddItem').onclick = () => { items.push({ item_name: '', qty: 1, amount: 0 }); renderItems(); };
 
   customerSel.onchange = () => {
     const opt = customerSel.selectedOptions[0];
