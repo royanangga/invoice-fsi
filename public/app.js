@@ -1,5 +1,8 @@
 const app = document.getElementById('app');
-let state = { invoices: [], settings: { customers: [] }, filters: { q: '', status: '', customer: '' }, me: null };
+let state = {
+  invoices: [], settings: { customers: [] }, filters: { q: '', status: '', customer: '' },
+  me: null, view: 'invoices', users: []
+};
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -25,7 +28,7 @@ async function loadAll() {
   ]);
   state.invoices = invoices;
   state.settings = settings;
-  render();
+  renderShell();
 }
 
 function buildQuery() {
@@ -46,7 +49,14 @@ function initials(name) {
   return (name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
 }
 
-function render() {
+const VIEW_TITLES = {
+  invoices: { title: 'Daftar Invoice', icon: '🧾' },
+  users: { title: 'Kelola User', icon: '👥' },
+  settings: { title: 'Pengaturan Perusahaan', icon: '⚙️' }
+};
+
+/* ---------- Shell: sidebar + main-content container (rendered once per login/reload) ---------- */
+function renderShell() {
   const me = state.me;
   const isManager = me.role === 'manager';
 
@@ -61,22 +71,15 @@ function render() {
           </div>
         </div>
         <nav class="sidebar-nav">
-          <button class="nav-item active" type="button" style="animation-delay:.02s">
+          <button class="nav-item ${state.view === 'invoices' ? 'active' : ''}" data-view="invoices" type="button" style="animation-delay:.02s">
             <span class="nav-icon">🧾</span> Invoice
           </button>
-          ${isManager ? `<button class="nav-item" id="navUsers" type="button" style="animation-delay:.06s">
+          ${isManager ? `<button class="nav-item ${state.view === 'users' ? 'active' : ''}" data-view="users" type="button" style="animation-delay:.06s">
             <span class="nav-icon">👥</span> Kelola User
           </button>` : ''}
-          <button class="nav-item" id="navSettings" type="button" style="animation-delay:.10s">
+          <button class="nav-item ${state.view === 'settings' ? 'active' : ''}" data-view="settings" type="button" style="animation-delay:.10s">
             <span class="nav-icon">⚙️</span> Pengaturan Perusahaan
           </button>
-          <button class="nav-item" id="navImport" type="button" style="animation-delay:.14s">
-            <span class="nav-icon">⬆️</span> Import dari Excel
-          </button>
-          <button class="nav-item" id="navExport" type="button" style="animation-delay:.18s">
-            <span class="nav-icon">⬇️</span> Export Excel
-          </button>
-          <input type="file" id="importFile" accept=".xls,.xlsx" style="display:none">
         </nav>
         <div class="sidebar-footer">
           <div class="user-chip">
@@ -91,77 +94,129 @@ function render() {
       </aside>
       <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-      <main class="main-content">
-        <header class="page-header">
-          <div>
-            <h1>Daftar Invoice</h1>
-            <div class="sub">${state.invoices.length} invoice ditemukan</div>
-          </div>
-          <button class="btn-primary" id="btnNew">+ Invoice Baru</button>
-        </header>
+      <main class="main-content" id="mainContent"></main>
 
-        <div class="toolbar">
-          <input id="q" placeholder="Cari no. invoice / remark..." value="${state.filters.q}">
-          <select id="filterCustomer">
-            <option value="">Semua Customer</option>
-            ${state.settings.customers.map(c => `<option value="${c.name}" ${state.filters.customer === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
-          </select>
-          <select id="filterStatus">
-            <option value="">Semua Status</option>
-            <option value="Belum Dibayar" ${state.filters.status === 'Belum Dibayar' ? 'selected' : ''}>Belum Dibayar</option>
-            <option value="Sudah Dibayar" ${state.filters.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
-          </select>
-          <div class="spacer"></div>
-        </div>
-
-        ${state.invoices.length === 0 ? `<div class="empty-state">Belum ada invoice. Klik "+ Invoice Baru" untuk mulai.</div>` : `
-        <table class="list">
-          <thead><tr><th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th></tr></thead>
-          <tbody>
-            ${state.invoices.map((inv, i) => `
-              <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s">
-                <td>${inv.invoice_no}</td>
-                <td>${inv.invoice_date}</td>
-                <td>${inv.customer_name}</td>
-                <td>${inv.remark || ''}</td>
-                <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
-                <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : 'badge-unpaid'}">${inv.status}</span></td>
-                <td>
-                  <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
-                    ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
-                  </span>
-                  ${inv.approval_status !== 'approved' && me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">Approve</button>` : ''}
-                </td>
-                <td>
-                  <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">Print</button>
-                  <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">Edit</button>
-                  <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">Hapus</button>
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>`}
-      </main>
       <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Buka menu">☰</button>
     </div>
   `;
 
-  document.getElementById('btnNew').onclick = () => openForm();
-  document.getElementById('navExport').onclick = () => window.open('/api/export', '_blank');
-  document.getElementById('navSettings').onclick = () => openSettingsForm();
-  const navUsers = document.getElementById('navUsers');
-  if (navUsers) navUsers.onclick = () => openUsersForm();
-  document.getElementById('navImport').onclick = () => document.getElementById('importFile').click();
-  document.getElementById('importFile').onchange = handleImportFile;
+  document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+    btn.onclick = () => switchView(btn.dataset.view);
+  });
   document.getElementById('btnLogout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); window.location.href = 'login.html'; };
-  document.getElementById('q').oninput = debounce(e => { state.filters.q = e.target.value; loadAll(); }, 350);
-  document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; loadAll(); };
-  document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; loadAll(); };
 
   const layoutEl = document.getElementById('layout');
-  const toggleSidebar = () => layoutEl.classList.toggle('sidebar-open');
-  document.getElementById('sidebarToggle').onclick = toggleSidebar;
+  document.getElementById('sidebarToggle').onclick = () => layoutEl.classList.toggle('sidebar-open');
   document.getElementById('sidebarBackdrop').onclick = () => layoutEl.classList.remove('sidebar-open');
+
+  renderMain();
+}
+
+function switchView(view) {
+  if (view === 'users' && state.me.role !== 'manager') return;
+  state.view = view;
+  document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.view === view);
+  });
+  document.getElementById('layout').classList.remove('sidebar-open');
+  renderMain();
+}
+
+/* ---------- Main content: swapped per tab, without re-rendering the sidebar ---------- */
+async function renderMain() {
+  const main = document.getElementById('mainContent');
+  if (state.view === 'users') {
+    main.innerHTML = `<div class="empty-state">Memuat data user...</div>`;
+    try {
+      state.users = await api('/api/users');
+    } catch (e) {
+      main.innerHTML = `<div class="empty-state">${e.message}</div>`;
+      return;
+    }
+  }
+  main.innerHTML = state.view === 'invoices' ? invoicesViewHtml()
+    : state.view === 'users' ? usersViewHtml()
+    : settingsViewHtml();
+
+  if (state.view === 'invoices') wireInvoicesView();
+  else if (state.view === 'users') wireUsersView();
+  else wireSettingsView();
+}
+
+/* ---------- Invoice tab ---------- */
+function invoicesViewHtml() {
+  const t = VIEW_TITLES.invoices;
+  return `
+    <header class="page-header">
+      <div>
+        <h1>${t.icon} ${t.title}</h1>
+        <div class="sub">${state.invoices.length} invoice ditemukan</div>
+      </div>
+      <div class="header-actions">
+        <input type="file" id="importFile" accept=".xls,.xlsx" style="display:none">
+        <button class="btn-secondary" id="btnImport">⬆ Import Excel</button>
+        <button class="btn-secondary" id="btnExport">⬇ Export Excel</button>
+        <button class="btn-primary" id="btnNew">+ Invoice Baru</button>
+      </div>
+    </header>
+
+    <div class="toolbar">
+      <input id="q" placeholder="Cari no. invoice / remark..." value="${state.filters.q}">
+      <select id="filterCustomer">
+        <option value="">Semua Customer</option>
+        ${state.settings.customers.map(c => `<option value="${c.name}" ${state.filters.customer === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
+      </select>
+      <select id="filterStatus">
+        <option value="">Semua Status</option>
+        <option value="Belum Dibayar" ${state.filters.status === 'Belum Dibayar' ? 'selected' : ''}>Belum Dibayar</option>
+        <option value="Sudah Dibayar" ${state.filters.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
+      </select>
+      <div class="spacer"></div>
+    </div>
+
+    ${state.invoices.length === 0 ? `<div class="empty-state">Belum ada invoice. Klik "+ Invoice Baru" untuk mulai.</div>` : `
+    <table class="list">
+      <thead><tr><th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th></tr></thead>
+      <tbody>
+        ${state.invoices.map((inv, i) => `
+          <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s">
+            <td>${inv.invoice_no}</td>
+            <td>${inv.invoice_date}</td>
+            <td>${inv.customer_name}</td>
+            <td>${inv.remark || ''}</td>
+            <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
+            <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : 'badge-unpaid'}">${inv.status}</span></td>
+            <td>
+              <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
+                ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
+              </span>
+              ${inv.approval_status !== 'approved' && state.me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">Approve</button>` : ''}
+            </td>
+            <td>
+              <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">Print</button>
+              <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">Edit</button>
+              <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">Hapus</button>
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>`}
+  `;
+}
+
+function wireInvoicesView() {
+  document.getElementById('btnNew').onclick = () => openForm();
+  document.getElementById('btnExport').onclick = () => window.open('/api/export', '_blank');
+  document.getElementById('btnImport').onclick = () => document.getElementById('importFile').click();
+  document.getElementById('importFile').onchange = handleImportFile;
+  document.getElementById('q').oninput = debounce(e => { state.filters.q = e.target.value; refreshInvoices(); }, 350);
+  document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; refreshInvoices(); };
+  document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; refreshInvoices(); };
+}
+
+async function refreshInvoices() {
+  state.invoices = await api('/api/invoices' + buildQuery());
+  if (state.view === 'invoices') renderMain();
 }
 
 async function handleImportFile(e) {
@@ -174,34 +229,67 @@ async function handleImportFile(e) {
     const result = await res.json();
     if (!res.ok) { alert('Import gagal: ' + (result.error || 'terjadi kesalahan')); return; }
     alert(`Import selesai.\nBerhasil: ${result.imported}\nDilewati (sudah ada / tidak terbaca): ${result.skipped}${result.errors && result.errors.length ? '\nError: ' + result.errors.length : ''}`);
-    loadAll();
+    refreshInvoices();
   } catch (err) {
     alert('Import gagal: ' + err.message);
   }
   e.target.value = '';
 }
 
-async function openUsersForm() {
-  const users = await api('/api/users');
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal">
-      <h2>Kelola User</h2>
-      <table class="items-table" style="margin-bottom:16px">
+window.approveInvoice = async (id) => {
+  await api(`/api/invoices/${id}/approve`, { method: 'POST' });
+  refreshInvoices();
+};
+
+window.printInvoice = (id) => window.open(`/api/invoices/${id}/print`, '_blank');
+
+window.deleteInvoice = async (id) => {
+  if (!confirm('Hapus invoice ini?')) return;
+  await api(`/api/invoices/${id}`, { method: 'DELETE' });
+  refreshInvoices();
+};
+
+window.editInvoice = async (id) => {
+  const inv = await api(`/api/invoices/${id}`);
+  openForm(inv);
+};
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+
+/* ---------- Kelola User tab ---------- */
+function usersViewHtml() {
+  const t = VIEW_TITLES.users;
+  const users = state.users;
+  return `
+    <header class="page-header">
+      <div>
+        <h1>${t.icon} ${t.title}</h1>
+        <div class="sub">${users.length} akun terdaftar</div>
+      </div>
+    </header>
+
+    <div class="panel" style="margin-bottom:20px">
+      ${users.length === 0 ? `<div class="empty-state">Belum ada user lain.</div>` : `
+      <table class="items-table">
         <thead><tr><th>Nama</th><th>Username</th><th>Role</th><th></th></tr></thead>
         <tbody>
           ${users.map(u => `
             <tr>
               <td>${u.name}</td>
               <td>${u.username}</td>
-              <td>${u.role === 'manager' ? 'Manager' : 'Staff'}</td>
-              <td><button class="btn-danger btn-icon" data-del="${u.id}" type="button">Hapus</button></td>
+              <td><span class="badge ${u.role === 'manager' ? 'badge-paid' : 'badge-unpaid'}">${u.role === 'manager' ? 'Manager' : 'Staff'}</span></td>
+              <td style="text-align:right"><button class="btn-danger btn-icon" data-del="${u.id}" type="button">Hapus</button></td>
             </tr>`).join('')}
         </tbody>
-      </table>
-      <label style="font-size:12px;color:var(--muted);font-weight:600">Tambah User Baru</label>
-      <div class="form-row" style="margin-top:8px">
+      </table>`}
+    </div>
+
+    <div class="panel">
+      <h2>Tambah User Baru</h2>
+      <div class="form-row">
         <div class="form-group"><label>Nama Lengkap</label><input id="u_name"></div>
         <div class="form-group"><label>Username</label><input id="u_username"></div>
       </div>
@@ -212,69 +300,115 @@ async function openUsersForm() {
         </div>
       </div>
       <div id="usersError" class="error-msg"></div>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="btnCloseUsers">Tutup</button>
+      <div class="modal-actions" style="justify-content:flex-start">
         <button class="btn-primary" id="btnAddUser">Tambah User</button>
       </div>
-    </div>`;
-  document.body.appendChild(overlay);
+    </div>
+  `;
+}
 
-  overlay.querySelectorAll('[data-del]').forEach(btn => {
+function wireUsersView() {
+  document.querySelectorAll('[data-del]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Hapus user ini?')) return;
       try {
         await api(`/api/users/${btn.dataset.del}`, { method: 'DELETE' });
-        overlay.remove();
-        openUsersForm();
+        renderMain();
       } catch (e) {
         alert(e.message);
       }
     };
   });
 
-  overlay.querySelector('#btnCloseUsers').onclick = () => overlay.remove();
-  overlay.querySelector('#btnAddUser').onclick = async () => {
+  document.getElementById('btnAddUser').onclick = async () => {
     try {
       await api('/api/users', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: overlay.querySelector('#u_name').value,
-          username: overlay.querySelector('#u_username').value,
-          password: overlay.querySelector('#u_password').value,
-          role: overlay.querySelector('#u_role').value
+          name: document.getElementById('u_name').value,
+          username: document.getElementById('u_username').value,
+          password: document.getElementById('u_password').value,
+          role: document.getElementById('u_role').value
         })
       });
-      overlay.remove();
-      openUsersForm();
+      renderMain();
     } catch (e) {
-      overlay.querySelector('#usersError').textContent = e.message;
+      document.getElementById('usersError').textContent = e.message;
     }
   };
 }
 
-window.approveInvoice = async (id) => {
-  await api(`/api/invoices/${id}/approve`, { method: 'POST' });
-  loadAll();
-};
+/* ---------- Pengaturan Perusahaan tab ---------- */
+function settingsViewHtml() {
+  const t = VIEW_TITLES.settings;
+  const co = state.settings.company || {
+    name: 'PT. FUJI SEAT INDONESIA', subtitle: '', address_line1: '', address_line2: '', phone: '',
+    bank_name: '', bank_branch: '', swift_code: '', account_number: '', signer_name: '', signer_title: ''
+  };
+  return `
+    <header class="page-header">
+      <div>
+        <h1>${t.icon} ${t.title}</h1>
+        <div class="sub">Data ini dipakai untuk kop &amp; tanda tangan di hasil cetak invoice</div>
+      </div>
+    </header>
 
-function debounce(fn, ms) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+    <div class="panel">
+      <div class="form-row"><div class="form-group"><label>Nama Perusahaan</label><input id="s_name" value="${co.name}"></div></div>
+      <div class="form-row"><div class="form-group"><label>Subtitle</label><input id="s_subtitle" value="${co.subtitle}"></div></div>
+      <div class="form-row"><div class="form-group"><label>Alamat Baris 1</label><input id="s_addr1" value="${co.address_line1}"></div></div>
+      <div class="form-row"><div class="form-group"><label>Alamat Baris 2</label><input id="s_addr2" value="${co.address_line2}"></div></div>
+      <div class="form-row"><div class="form-group"><label>Telepon/Fax</label><input id="s_phone" value="${co.phone}"></div></div>
+      <div class="form-row">
+        <div class="form-group"><label>Nama Bank</label><input id="s_bank" value="${co.bank_name}"></div>
+        <div class="form-group"><label>Cabang</label><input id="s_branch" value="${co.bank_branch}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Swift Code</label><input id="s_swift" value="${co.swift_code}"></div>
+        <div class="form-group"><label>No. Rekening</label><input id="s_acc" value="${co.account_number}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Nama Penandatangan</label><input id="s_signer" value="${co.signer_name}"></div>
+        <div class="form-group"><label>Jabatan</label><input id="s_title" value="${co.signer_title}"></div>
+      </div>
+      <div id="settingsSaved" class="saved-msg"></div>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn-primary" id="btnSaveS">Simpan Perubahan</button>
+      </div>
+    </div>
+  `;
 }
 
-window.printInvoice = (id) => window.open(`/api/invoices/${id}/print`, '_blank');
+function wireSettingsView() {
+  document.getElementById('btnSaveS').onclick = async () => {
+    const company = {
+      name: document.getElementById('s_name').value,
+      subtitle: document.getElementById('s_subtitle').value,
+      address_line1: document.getElementById('s_addr1').value,
+      address_line2: document.getElementById('s_addr2').value,
+      phone: document.getElementById('s_phone').value,
+      bank_name: document.getElementById('s_bank').value,
+      bank_branch: document.getElementById('s_branch').value,
+      swift_code: document.getElementById('s_swift').value,
+      account_number: document.getElementById('s_acc').value,
+      signer_name: document.getElementById('s_signer').value,
+      signer_title: document.getElementById('s_title').value
+    };
+    const saved = document.getElementById('settingsSaved');
+    try {
+      await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company }) });
+      state.settings.company = company;
+      saved.classList.remove('is-error');
+      saved.textContent = '✓ Perubahan tersimpan';
+      setTimeout(() => { saved.textContent = ''; }, 2500);
+    } catch (e) {
+      saved.classList.add('is-error');
+      saved.textContent = e.message;
+    }
+  };
+}
 
-window.deleteInvoice = async (id) => {
-  if (!confirm('Hapus invoice ini?')) return;
-  await api(`/api/invoices/${id}`, { method: 'DELETE' });
-  loadAll();
-};
-
-window.editInvoice = async (id) => {
-  const inv = await api(`/api/invoices/${id}`);
-  openForm(inv);
-};
-
+/* ---------- Invoice form (tetap modal, form-nya panjang & kontekstual per baris) ---------- */
 async function openForm(existing) {
   const isEdit = !!existing;
   const customers = state.settings.customers;
@@ -432,7 +566,7 @@ async function openForm(existing) {
         await api('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       }
       overlay.remove();
-      loadAll();
+      refreshInvoices();
     } catch (e) {
       overlay.querySelector('#formError').textContent = e.message;
     }
@@ -443,57 +577,3 @@ async function openForm(existing) {
   const ok = await checkAuth();
   if (ok) loadAll();
 })();
-
-async function openSettingsForm() {
-  const co = state.settings.company || {
-    name: 'PT. FUJI SEAT INDONESIA', subtitle: '', address_line1: '', address_line2: '', phone: '',
-    bank_name: '', bank_branch: '', swift_code: '', account_number: '', signer_name: '', signer_title: ''
-  };
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal">
-      <h2>Pengaturan Perusahaan (untuk cetak invoice)</h2>
-      <div class="form-row"><div class="form-group"><label>Nama Perusahaan</label><input id="s_name" value="${co.name}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Subtitle</label><input id="s_subtitle" value="${co.subtitle}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Alamat Baris 1</label><input id="s_addr1" value="${co.address_line1}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Alamat Baris 2</label><input id="s_addr2" value="${co.address_line2}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Telepon/Fax</label><input id="s_phone" value="${co.phone}"></div></div>
-      <div class="form-row">
-        <div class="form-group"><label>Nama Bank</label><input id="s_bank" value="${co.bank_name}"></div>
-        <div class="form-group"><label>Cabang</label><input id="s_branch" value="${co.bank_branch}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Swift Code</label><input id="s_swift" value="${co.swift_code}"></div>
-        <div class="form-group"><label>No. Rekening</label><input id="s_acc" value="${co.account_number}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Nama Penandatangan</label><input id="s_signer" value="${co.signer_name}"></div>
-        <div class="form-group"><label>Jabatan</label><input id="s_title" value="${co.signer_title}"></div>
-      </div>
-      <div class="modal-actions">
-        <button class="btn-secondary" id="btnCancelS">Batal</button>
-        <button class="btn-primary" id="btnSaveS">Simpan</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-  overlay.querySelector('#btnCancelS').onclick = () => overlay.remove();
-  overlay.querySelector('#btnSaveS').onclick = async () => {
-    const company = {
-      name: overlay.querySelector('#s_name').value,
-      subtitle: overlay.querySelector('#s_subtitle').value,
-      address_line1: overlay.querySelector('#s_addr1').value,
-      address_line2: overlay.querySelector('#s_addr2').value,
-      phone: overlay.querySelector('#s_phone').value,
-      bank_name: overlay.querySelector('#s_bank').value,
-      bank_branch: overlay.querySelector('#s_branch').value,
-      swift_code: overlay.querySelector('#s_swift').value,
-      account_number: overlay.querySelector('#s_acc').value,
-      signer_name: overlay.querySelector('#s_signer').value,
-      signer_title: overlay.querySelector('#s_title').value
-    };
-    await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company }) });
-    state.settings.company = company;
-    overlay.remove();
-  };
-}

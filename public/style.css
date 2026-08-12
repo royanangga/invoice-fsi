@@ -84,9 +84,15 @@ body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-ser
   animation: fadeInUp .35s ease both;
 }
 
-.page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 22px; }
+.page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 22px; flex-wrap:wrap; gap:12px; }
 .page-header h1 { font-size: 21px; color: var(--navy); margin:0 0 3px; }
 .page-header .sub { color: var(--muted); font-size: 13px; }
+.header-actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+.panel { background:var(--card); border-radius:10px; padding:24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); animation: fadeInUp .3s ease both; }
+.panel h2 { margin:0 0 16px; font-size:15px; color:var(--navy); }
+.saved-msg { font-size:12.5px; font-weight:600; color:#0f7a4a; min-height:18px; margin-top:4px; transition: opacity .2s ease; }
+.saved-msg.is-error { color: var(--danger); }
 
 /* legacy alias kept for old references */
 header.topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px; }
