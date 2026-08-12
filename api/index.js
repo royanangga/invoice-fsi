@@ -354,7 +354,7 @@ app.get('/api/invoices/:id/print', async (req, res) => {
       .c-item { text-align:left; width: 55%; }
       .c-qty { text-align:center; width: 15%; }
       .c-amt { text-align:right; width: 25%; }
-      tr.group-header td { font-weight:bold; text-align:left; padding-top:10px; }
+      tr.group-header td { font-weight:bold; text-align:left; padding-top:10px; padding-bottom:6px; border-bottom:1px solid #000; }
       .ex-rate { text-align:right; margin-top: 10px; font-size:11pt; }
       .ex-rate span { margin-right: 10px; }
       tr.total-row td { font-weight:bold; border-top: 2px solid #000; padding-top:8px; }
