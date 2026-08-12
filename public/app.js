@@ -865,10 +865,11 @@ async function openForm(existing) {
       </div>
       <div class="form-row">
         <div class="form-group">
-          <label>Exchange Rate (opsional, tampil di print jika bukan IDR)</label>
-          <input type="number" step="any" id="f_exrate" value="${existing && existing.exchange_rate ? existing.exchange_rate : ''}" placeholder="mis. 17502">
+          <label>Exchange Rate <span id="exRateHint">(opsional, tampil di print jika bukan IDR)</span></label>
+          <input type="number" step="any" id="f_exrate" value="${existing && existing.exchange_rate ? existing.exchange_rate : ''}" placeholder="mis. 109.77">
         </div>
       </div>
+      <div class="sub" id="valutaHint" style="display:none;margin:-8px 0 14px;color:var(--muted);font-size:12px">Kolom "Jumlah" pada Item selalu diisi dalam IDR. Amount dalam mata uang asing akan dihitung otomatis saat dicetak: <strong>IDR ÷ Exchange Rate</strong>.</div>
       <div class="form-group" style="margin-bottom:12px">
         <label>Remark</label>
         <textarea id="f_remark" rows="2">${existing ? (existing.remark || '') : ''}</textarea>
@@ -876,10 +877,11 @@ async function openForm(existing) {
 
       <label style="font-size:12px;color:var(--muted);font-weight:600">Item</label>
       <table class="items-table" id="itemsTable">
-        <thead><tr><th style="width:50%">Nama Item</th><th style="width:15%">Qty</th><th style="width:25%">Jumlah</th><th></th></tr></thead>
+        <thead><tr><th style="width:50%">Nama Item</th><th style="width:15%">Qty</th><th style="width:25%">Jumlah (IDR)</th><th></th></tr></thead>
         <tbody id="itemsBody"></tbody>
       </table>
       <button class="btn-secondary btn-icon" id="btnAddItem" type="button">${icon('plus', 'icon-sm')} Tambah Item</button>
+      <div id="totalsPreview" class="sub" style="margin-top:10px;font-size:12.5px;color:var(--navy);font-weight:600"></div>
 
       <div id="formError" class="error-msg"></div>
       <div class="modal-actions">
@@ -905,11 +907,13 @@ async function openForm(existing) {
         const i = +e.target.dataset.i;
         const field = e.target.dataset.field;
         items[i][field] = field === 'item_name' ? e.target.value : Number(e.target.value);
+        updateTotalsPreview();
       };
     });
     body.querySelectorAll('[data-remove]').forEach(btn => {
       btn.onclick = () => { items.splice(+btn.dataset.remove, 1); renderItems(); };
     });
+    updateTotalsPreview();
   }
   renderItems();
 
@@ -918,11 +922,43 @@ async function openForm(existing) {
   const customerSel = overlay.querySelector('#f_customer');
   const currencySel = overlay.querySelector('#f_currency');
   const attnInput = overlay.querySelector('#f_attn');
+  const exRateInput = overlay.querySelector('#f_exrate');
+
+  // Untuk mata uang asing (reimbursement ke perusahaan luar negeri): Jumlah item selalu
+  // diisi dalam IDR, Exchange Rate wajib diisi, dan amount valuta dihitung otomatis.
+  function updateCurrencyUI() {
+    const isIDR = currencySel.value === 'IDR';
+    overlay.querySelector('#exRateHint').textContent = isIDR ? '(opsional)' : '(wajib diisi untuk mata uang selain IDR)';
+    overlay.querySelector('#valutaHint').style.display = isIDR ? 'none' : 'block';
+    updateTotalsPreview();
+  }
+
+  function updateTotalsPreview() {
+    const preview = overlay.querySelector('#totalsPreview');
+    if (!preview) return;
+    const totalIdr = items.reduce((s, it) => s + ((Number(it.amount) || 0) * (Number(it.qty) || 1)), 0);
+    const isIDR = currencySel.value === 'IDR';
+    const rate = Number(exRateInput.value) || 0;
+    if (isIDR) {
+      preview.textContent = `Total: IDR ${totalIdr.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    } else if (rate > 0) {
+      const valuta = totalIdr / rate;
+      const digits = currencySel.value === 'JPY' ? 0 : 2;
+      preview.textContent = `Total: IDR ${totalIdr.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ≈ ${currencySel.value} ${valuta.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+    } else {
+      preview.textContent = `Total: IDR ${totalIdr.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} — isi Exchange Rate untuk melihat nominal ${currencySel.value}`;
+    }
+  }
+
   customerSel.onchange = () => {
     const opt = customerSel.selectedOptions[0];
     if (opt.dataset.currency) currencySel.value = opt.dataset.currency;
     if (opt.dataset.attn) attnInput.value = opt.dataset.attn;
+    updateCurrencyUI();
   };
+  currencySel.onchange = updateCurrencyUI;
+  exRateInput.oninput = updateTotalsPreview;
+  updateCurrencyUI();
 
   const dateInput = overlay.querySelector('#f_date');
   if (!isEdit) {
@@ -957,6 +993,10 @@ async function openForm(existing) {
     };
     if (!payload.invoice_no || !payload.invoice_date || payload.items.length === 0) {
       overlay.querySelector('#formError').textContent = 'No. invoice, tanggal, dan minimal 1 item wajib diisi.';
+      return;
+    }
+    if (payload.currency !== 'IDR' && !payload.exchange_rate) {
+      overlay.querySelector('#formError').textContent = 'Exchange Rate wajib diisi untuk invoice dengan mata uang selain IDR, supaya amount valuta bisa dihitung otomatis.';
       return;
     }
     saveBtn.disabled = true; saveBtn.innerHTML = spinner() + ' Menyimpan...';

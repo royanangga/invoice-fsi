@@ -3,7 +3,7 @@ const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const XLSX = require('xlsx');
 const { getSupabase } = require('../lib/supabaseClient');
-const { nextInvoiceNumber, numFmt } = require('../lib/utils');
+const { nextInvoiceNumber, numFmt, numFmtValuta } = require('../lib/utils');
 const { importXlsBuffer } = require('../lib/importXls');
 const { COOKIE_NAME, hashPassword, verifyPassword, signToken, requireAuth, requireRole } = require('../lib/auth');
 
@@ -314,14 +314,25 @@ app.get('/api/invoices/:id/print', async (req, res) => {
     const items = inv.items || [];
     const total = items.reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
     const isIDR = inv.currency === 'IDR';
+    // Invoice mata uang asing (reimbursement ke perusahaan luar negeri): jumlah selalu
+    // dimasukkan dalam IDR, lalu nominal valuta dihitung otomatis dari Exchange Rate.
+    const hasValuta = !isIDR && !!inv.exchange_rate;
+    const totalValuta = hasValuta ? total / inv.exchange_rate : null;
 
-    const rows = items.map((it, i) => `
+    const rows = items.map((it, i) => {
+      const lineIdr = it.amount * (it.qty || 1);
+      const valutaCell = hasValuta
+        ? `<td class="c-amt">${numFmtValuta(lineIdr / inv.exchange_rate, inv.currency)}</td>`
+        : '';
+      return `
       <tr>
         <td class="c-no">${i + 1}</td>
         <td class="c-item">${it.item_name}</td>
         <td class="c-qty">${it.qty || ''}</td>
-        <td class="c-amt">${numFmt(it.amount * (it.qty || 1))}</td>
-      </tr>`).join('');
+        <td class="c-amt">${numFmt(lineIdr)}</td>
+        ${valutaCell}
+      </tr>`;
+    }).join('');
 
     const exRateLine = (!isIDR && inv.exchange_rate) ? `
       <div class="ex-rate"><span>Exchange Rate :</span><strong>${Number(inv.exchange_rate).toLocaleString('en-US')}</strong></div>` : '';
@@ -354,6 +365,9 @@ app.get('/api/invoices/:id/print', async (req, res) => {
       .c-item { text-align:left; width: 55%; }
       .c-qty { text-align:center; width: 15%; }
       .c-amt { text-align:right; width: 25%; }
+      table.items.dual-amt .c-item { width: 40%; }
+      table.items.dual-amt .c-qty { width: 12%; }
+      table.items.dual-amt .c-amt { width: 21.5%; }
       tr.group-header td { font-weight:bold; text-align:left; padding-top:10px; padding-bottom:6px; border-bottom:1px solid #000; }
       .ex-rate { text-align:right; margin-top: 10px; font-size:11pt; }
       .ex-rate span { margin-right: 10px; }
@@ -391,15 +405,16 @@ app.get('/api/invoices/:id/print', async (req, res) => {
           <tr><td class="label">INVOICE NO.</td><td class="colon">:</td><td class="value">${inv.invoice_no}</td></tr>
         </table>
       </div>
-      <table class="items">
+      <table class="items ${hasValuta ? 'dual-amt' : ''}">
         <thead><tr>
           <th class="c-no">NO.</th><th class="c-item">ITEM</th>
-          <th class="c-qty">Number of Persons</th><th class="c-amt">AMOUNT (${inv.currency})</th>
+          <th class="c-qty">Number of Persons</th><th class="c-amt">AMOUNT (IDR)</th>
+          ${hasValuta ? `<th class="c-amt">AMOUNT (${inv.currency})</th>` : ''}
         </tr></thead>
         <tbody>
-          ${inv.remark ? `<tr class="group-header"><td colspan="4">${inv.remark}</td></tr>` : ''}
+          ${inv.remark ? `<tr class="group-header"><td colspan="${hasValuta ? 5 : 4}">${inv.remark}</td></tr>` : ''}
           ${rows}
-          <tr class="total-row"><td colspan="3" style="text-align:right">TOTAL</td><td class="c-amt">${numFmt(total)}</td></tr>
+          <tr class="total-row"><td colspan="3" style="text-align:right">TOTAL</td><td class="c-amt">${numFmt(total)}</td>${hasValuta ? `<td class="c-amt">${numFmtValuta(totalValuta, inv.currency)}</td>` : ''}</tr>
         </tbody>
       </table>
       ${exRateLine}
