@@ -4,14 +4,68 @@ let state = {
   me: null, view: 'invoices', users: []
 };
 
+/* ---------- Icon set (inline SVG, konsisten dgn palet UI) ---------- */
+const ICONS = {
+  invoice: `<svg viewBox="0 0 24 24" class="icon"><path d="M6 3h12v16.5l-2-1.2-2 1.2-2-1.2-2 1.2-2-1.2-2 1.2V3z"/><line x1="8.5" y1="8" x2="15.5" y2="8"/><line x1="8.5" y1="11.5" x2="15.5" y2="11.5"/><line x1="8.5" y1="15" x2="12.5" y2="15"/></svg>`,
+  users: `<svg viewBox="0 0 24 24" class="icon"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 14.3c2.4.3 4 2.1 4 4.7"/></svg>`,
+  settings: `<svg viewBox="0 0 24 24" class="icon"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2.5 12h3M18.5 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>`,
+  upload: `<svg viewBox="0 0 24 24" class="icon"><path d="M12 15V4M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>`,
+  download: `<svg viewBox="0 0 24 24" class="icon"><path d="M12 4v11M8 11l4 4 4-4"/><path d="M4 16v3a2 2 0 002 2h12a2 2 0 002-2v-3"/></svg>`,
+  plus: `<svg viewBox="0 0 24 24" class="icon"><path d="M12 5v14M5 12h14"/></svg>`,
+  menu: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 6h16M4 12h16M4 18h16"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" class="icon"><path d="M5 12.5l4.5 4.5L19 7"/></svg>`,
+  x: `<svg viewBox="0 0 24 24" class="icon"><path d="M6 6l12 12M18 6L6 18"/></svg>`,
+  logout: `<svg viewBox="0 0 24 24" class="icon"><path d="M9 4H5a1 1 0 00-1 1v14a1 1 0 001 1h4"/><path d="M13 8l5 4-5 4M18 12H8"/></svg>`,
+  print: `<svg viewBox="0 0 24 24" class="icon"><path d="M6.5 8.7V3.8h11v4.9"/><rect x="4" y="8.7" width="16" height="6.6" rx="1.2"/><path d="M7 15.3V20h10v-4.7"/></svg>`,
+  edit: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 17.25V20h2.75L17.8 8.94l-2.75-2.75L4 17.25z"/><path d="M14.5 4.94l2.75 2.75"/></svg>`,
+  trash: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 6.5h16M9 6.5V4.3a1 1 0 011-1h4a1 1 0 011 1v2.2M6.5 6.5l.9 12.3a1.4 1.4 0 001.4 1.3h6.4a1.4 1.4 0 001.4-1.3l.9-12.3"/><path d="M10 10.5v6M14 10.5v6"/></svg>`,
+  search: `<svg viewBox="0 0 24 24" class="icon"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-4.3-4.3"/></svg>`
+};
+function icon(name, extraClass) {
+  const svg = ICONS[name] || '';
+  return extraClass ? svg.replace('class="icon"', `class="icon ${extraClass}"`) : svg;
+}
+function spinner(extraClass) { return `<span class="spinner${extraClass ? ' ' + extraClass : ''}"></span>`; }
+
+/* ---------- Loading indicators (splash + top progress bar) ---------- */
+let activeRequests = 0;
+function showTopLoader() {
+  const el = document.getElementById('topLoader');
+  if (!el) return;
+  activeRequests++;
+  el.classList.add('is-active');
+  el.style.width = '65%';
+}
+function hideTopLoader() {
+  const el = document.getElementById('topLoader');
+  if (!el) return;
+  activeRequests = Math.max(0, activeRequests - 1);
+  if (activeRequests > 0) return;
+  el.style.width = '100%';
+  setTimeout(() => {
+    if (activeRequests === 0) { el.classList.remove('is-active'); el.style.width = '0%'; }
+  }, 250);
+}
+function hideAppLoader() {
+  const el = document.getElementById('appLoader');
+  if (!el) return;
+  el.classList.add('loader-hidden');
+  setTimeout(() => el.remove(), 400);
+}
+
 async function api(path, opts) {
-  const res = await fetch(path, opts);
-  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Belum login'); }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Terjadi kesalahan' }));
-    throw new Error(err.error || 'Terjadi kesalahan');
+  showTopLoader();
+  try {
+    const res = await fetch(path, opts);
+    if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Belum login'); }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Terjadi kesalahan' }));
+      throw new Error(err.error || 'Terjadi kesalahan');
+    }
+    return res.json();
+  } finally {
+    hideTopLoader();
   }
-  return res.json();
 }
 
 async function checkAuth() {
@@ -29,6 +83,7 @@ async function loadAll() {
   state.invoices = invoices;
   state.settings = settings;
   renderShell();
+  hideAppLoader();
 }
 
 function buildQuery() {
@@ -50,9 +105,9 @@ function initials(name) {
 }
 
 const VIEW_TITLES = {
-  invoices: { title: 'Daftar Invoice', icon: '🧾' },
-  users: { title: 'Kelola User', icon: '👥' },
-  settings: { title: 'Pengaturan Perusahaan', icon: '⚙️' }
+  invoices: { title: 'Daftar Invoice', icon: icon('invoice', 'icon-lg') },
+  users: { title: 'Kelola User', icon: icon('users', 'icon-lg') },
+  settings: { title: 'Pengaturan Perusahaan', icon: icon('settings', 'icon-lg') }
 };
 
 /* ---------- Shell: sidebar + main-content container (rendered once per login/reload) ---------- */
@@ -72,13 +127,13 @@ function renderShell() {
         </div>
         <nav class="sidebar-nav">
           <button class="nav-item ${state.view === 'invoices' ? 'active' : ''}" data-view="invoices" type="button" style="animation-delay:.02s">
-            <span class="nav-icon">🧾</span> Invoice
+            <span class="nav-icon">${icon('invoice')}</span> Invoice
           </button>
           ${isManager ? `<button class="nav-item ${state.view === 'users' ? 'active' : ''}" data-view="users" type="button" style="animation-delay:.06s">
-            <span class="nav-icon">👥</span> Kelola User
+            <span class="nav-icon">${icon('users')}</span> Kelola User
           </button>` : ''}
           <button class="nav-item ${state.view === 'settings' ? 'active' : ''}" data-view="settings" type="button" style="animation-delay:.10s">
-            <span class="nav-icon">⚙️</span> Pengaturan Perusahaan
+            <span class="nav-icon">${icon('settings')}</span> Pengaturan Perusahaan
           </button>
         </nav>
         <div class="sidebar-footer">
@@ -89,21 +144,27 @@ function renderShell() {
               <div class="user-role">${isManager ? 'Manager' : 'Staff'}</div>
             </div>
           </div>
-          <button class="btn-logout" id="btnLogout" type="button">Keluar</button>
+          <button class="btn-logout" id="btnLogout" type="button">${icon('logout')} Keluar</button>
         </div>
       </aside>
       <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
       <main class="main-content" id="mainContent"></main>
 
-      <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Buka menu">☰</button>
+      <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Buka menu">${icon('menu')}</button>
     </div>
   `;
 
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.onclick = () => switchView(btn.dataset.view);
   });
-  document.getElementById('btnLogout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); window.location.href = 'login.html'; };
+  document.getElementById('btnLogout').onclick = async () => {
+    const btn = document.getElementById('btnLogout');
+    btn.disabled = true;
+    btn.innerHTML = spinner() + ' Keluar...';
+    await fetch('/api/logout', { method: 'POST' });
+    window.location.href = 'login.html';
+  };
 
   const layoutEl = document.getElementById('layout');
   document.getElementById('sidebarToggle').onclick = () => layoutEl.classList.toggle('sidebar-open');
@@ -126,7 +187,7 @@ function switchView(view) {
 async function renderMain() {
   const main = document.getElementById('mainContent');
   if (state.view === 'users') {
-    main.innerHTML = `<div class="empty-state">Memuat data user...</div>`;
+    main.innerHTML = `<div class="loading-state">${spinner('spinner-lg')}<span>Memuat data user...</span></div>`;
     try {
       state.users = await api('/api/users');
     } catch (e) {
@@ -154,14 +215,14 @@ function invoicesViewHtml() {
       </div>
       <div class="header-actions">
         <input type="file" id="importFile" accept=".xls,.xlsx" style="display:none">
-        <button class="btn-secondary" id="btnImport">⬆ Import Excel</button>
-        <button class="btn-secondary" id="btnExport">⬇ Export Excel</button>
-        <button class="btn-primary" id="btnNew">+ Invoice Baru</button>
+        <button class="btn-secondary" id="btnImport">${icon('upload')} Import Excel</button>
+        <button class="btn-secondary" id="btnExport">${icon('download')} Export Excel</button>
+        <button class="btn-primary" id="btnNew">${icon('plus')} Invoice Baru</button>
       </div>
     </header>
 
     <div class="toolbar">
-      <input id="q" placeholder="Cari no. invoice / remark..." value="${state.filters.q}">
+      <div class="search-wrap">${icon('search', 'icon-sm')}<input id="q" placeholder="Cari no. invoice / remark..." value="${state.filters.q}"></div>
       <select id="filterCustomer">
         <option value="">Semua Customer</option>
         ${state.settings.customers.map(c => `<option value="${c.name}" ${state.filters.customer === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
@@ -190,12 +251,12 @@ function invoicesViewHtml() {
               <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
                 ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
               </span>
-              ${inv.approval_status !== 'approved' && state.me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">Approve</button>` : ''}
+              ${inv.approval_status !== 'approved' && state.me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>` : ''}
             </td>
             <td>
-              <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">Print</button>
-              <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">Edit</button>
-              <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">Hapus</button>
+              <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">${icon('print', 'icon-sm')} Print</button>
+              <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} Edit</button>
+              <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>
             </td>
           </tr>
         `).join('')}
@@ -224,6 +285,10 @@ async function handleImportFile(e) {
   if (!file) return;
   const formData = new FormData();
   formData.append('file', file);
+  const btn = document.getElementById('btnImport');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = spinner() + ' Mengimpor...'; }
+  showTopLoader();
   try {
     const res = await fetch('/api/import-xls', { method: 'POST', body: formData });
     const result = await res.json();
@@ -232,6 +297,9 @@ async function handleImportFile(e) {
     refreshInvoices();
   } catch (err) {
     alert('Import gagal: ' + err.message);
+  } finally {
+    hideTopLoader();
+    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
   }
   e.target.value = '';
 }
@@ -281,7 +349,7 @@ function usersViewHtml() {
               <td>${u.name}</td>
               <td>${u.username}</td>
               <td><span class="badge ${u.role === 'manager' ? 'badge-paid' : 'badge-unpaid'}">${u.role === 'manager' ? 'Manager' : 'Staff'}</span></td>
-              <td style="text-align:right"><button class="btn-danger btn-icon" data-del="${u.id}" type="button">Hapus</button></td>
+              <td style="text-align:right"><button class="btn-danger btn-icon" data-del="${u.id}" type="button">${icon('trash', 'icon-sm')} Hapus</button></td>
             </tr>`).join('')}
         </tbody>
       </table>`}
@@ -301,7 +369,7 @@ function usersViewHtml() {
       </div>
       <div id="usersError" class="error-msg"></div>
       <div class="modal-actions" style="justify-content:flex-start">
-        <button class="btn-primary" id="btnAddUser">Tambah User</button>
+        <button class="btn-primary" id="btnAddUser">${icon('plus')} Tambah User</button>
       </div>
     </div>
   `;
@@ -311,16 +379,22 @@ function wireUsersView() {
   document.querySelectorAll('[data-del]').forEach(btn => {
     btn.onclick = async () => {
       if (!confirm('Hapus user ini?')) return;
+      const original = btn.innerHTML;
+      btn.disabled = true; btn.innerHTML = spinner();
       try {
         await api(`/api/users/${btn.dataset.del}`, { method: 'DELETE' });
         renderMain();
       } catch (e) {
         alert(e.message);
+        btn.disabled = false; btn.innerHTML = original;
       }
     };
   });
 
-  document.getElementById('btnAddUser').onclick = async () => {
+  const addBtn = document.getElementById('btnAddUser');
+  const addBtnOriginal = addBtn.innerHTML;
+  addBtn.onclick = async () => {
+    addBtn.disabled = true; addBtn.innerHTML = spinner() + ' Menambahkan...';
     try {
       await api('/api/users', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -334,6 +408,7 @@ function wireUsersView() {
       renderMain();
     } catch (e) {
       document.getElementById('usersError').textContent = e.message;
+      addBtn.disabled = false; addBtn.innerHTML = addBtnOriginal;
     }
   };
 }
@@ -373,14 +448,17 @@ function settingsViewHtml() {
       </div>
       <div id="settingsSaved" class="saved-msg"></div>
       <div class="modal-actions" style="justify-content:flex-start">
-        <button class="btn-primary" id="btnSaveS">Simpan Perubahan</button>
+        <button class="btn-primary" id="btnSaveS">${icon('check')} Simpan Perubahan</button>
       </div>
     </div>
   `;
 }
 
 function wireSettingsView() {
-  document.getElementById('btnSaveS').onclick = async () => {
+  const saveBtn = document.getElementById('btnSaveS');
+  const saveBtnOriginal = saveBtn.innerHTML;
+  saveBtn.onclick = async () => {
+    saveBtn.disabled = true; saveBtn.innerHTML = spinner() + ' Menyimpan...';
     const company = {
       name: document.getElementById('s_name').value,
       subtitle: document.getElementById('s_subtitle').value,
@@ -399,11 +477,13 @@ function wireSettingsView() {
       await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company }) });
       state.settings.company = company;
       saved.classList.remove('is-error');
-      saved.textContent = '✓ Perubahan tersimpan';
+      saved.innerHTML = `${icon('check', 'icon-sm')} Perubahan tersimpan`;
       setTimeout(() => { saved.textContent = ''; }, 2500);
     } catch (e) {
       saved.classList.add('is-error');
       saved.textContent = e.message;
+    } finally {
+      saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOriginal;
     }
   };
 }
@@ -483,12 +563,12 @@ async function openForm(existing) {
         <thead><tr><th style="width:50%">Nama Item</th><th style="width:15%">Qty</th><th style="width:25%">Jumlah</th><th></th></tr></thead>
         <tbody id="itemsBody"></tbody>
       </table>
-      <button class="btn-secondary btn-icon" id="btnAddItem" type="button">+ Tambah Item</button>
+      <button class="btn-secondary btn-icon" id="btnAddItem" type="button">${icon('plus', 'icon-sm')} Tambah Item</button>
 
       <div id="formError" class="error-msg"></div>
       <div class="modal-actions">
-        <button class="btn-secondary" id="btnCancel">Batal</button>
-        <button class="btn-primary" id="btnSave">Simpan</button>
+        <button class="btn-secondary" id="btnCancel">${icon('x', 'icon-sm')} Batal</button>
+        <button class="btn-primary" id="btnSave">${icon('check', 'icon-sm')} Simpan</button>
       </div>
     </div>
   `;
@@ -501,7 +581,7 @@ async function openForm(existing) {
         <td><input value="${it.item_name}" data-i="${i}" data-field="item_name"></td>
         <td><input type="number" step="any" value="${it.qty}" data-i="${i}" data-field="qty"></td>
         <td><input type="number" step="any" value="${it.amount}" data-i="${i}" data-field="amount"></td>
-        <td><button class="btn-danger btn-icon" data-remove="${i}" type="button">×</button></td>
+        <td><button class="btn-danger btn-icon" data-remove="${i}" type="button">${icon('x', 'icon-sm')}</button></td>
       </tr>
     `).join('');
     body.querySelectorAll('input').forEach(inp => {
@@ -539,7 +619,9 @@ async function openForm(existing) {
 
   overlay.querySelector('#btnCancel').onclick = () => overlay.remove();
 
-  overlay.querySelector('#btnSave').onclick = async () => {
+  const saveBtn = overlay.querySelector('#btnSave');
+  const saveBtnOriginal = saveBtn.innerHTML;
+  saveBtn.onclick = async () => {
     const opt = customerSel.selectedOptions[0];
     const payload = {
       invoice_no: overlay.querySelector('#f_no').value.trim(),
@@ -559,6 +641,7 @@ async function openForm(existing) {
       overlay.querySelector('#formError').textContent = 'No. invoice, tanggal, dan minimal 1 item wajib diisi.';
       return;
     }
+    saveBtn.disabled = true; saveBtn.innerHTML = spinner() + ' Menyimpan...';
     try {
       if (isEdit) {
         await api(`/api/invoices/${existing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -569,11 +652,17 @@ async function openForm(existing) {
       refreshInvoices();
     } catch (e) {
       overlay.querySelector('#formError').textContent = e.message;
+      saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOriginal;
     }
   };
 }
 
 (async () => {
-  const ok = await checkAuth();
-  if (ok) loadAll();
+  try {
+    const ok = await checkAuth();
+    if (ok) await loadAll();
+    else hideAppLoader();
+  } catch (e) {
+    hideAppLoader();
+  }
 })();

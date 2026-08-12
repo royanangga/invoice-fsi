@@ -19,6 +19,81 @@ body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-ser
 @keyframes slideInLeft { from { opacity:0; transform: translateX(-16px); } to { opacity:1; transform:translateX(0); } }
 @keyframes scaleIn { from { opacity:0; transform: scale(0.94) translateY(6px); } to { opacity:1; transform: scale(1) translateY(0); } }
 @keyframes popIn { from { opacity:0; transform: scale(0.85); } to { opacity:1; transform: scale(1); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulseLogo { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(14,124,123,0.45); } 50% { transform: scale(1.06); box-shadow: 0 0 0 10px rgba(14,124,123,0); } }
+@keyframes barSlide { 0% { transform: translateX(-100%) scaleX(0.4); } 50% { transform: translateX(10%) scaleX(0.7); } 100% { transform: translateX(100%) scaleX(0.4); } }
+@keyframes dotBounce { 0%, 80%, 100% { transform: translateY(0); opacity:.5; } 40% { transform: translateY(-6px); opacity:1; } }
+
+/* ---------- Icon system ---------- */
+.icon {
+  width: 16px; height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+  vertical-align: -3px;
+  display: inline-block;
+}
+.icon-lg { width: 20px; height: 20px; vertical-align: -4px; }
+.icon-sm { width: 13px; height: 13px; vertical-align: -2px; }
+button, .nav-item, .btn-logout { display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+.header-actions button, .modal-actions button { gap:7px; }
+h1 { display:flex; align-items:center; gap:9px; }
+
+/* ---------- Top progress bar (route/request loading) ---------- */
+.top-loader {
+  position: fixed; top:0; left:0; height:3px; width:0%;
+  background: linear-gradient(90deg, var(--teal), var(--teal-light));
+  z-index: 300; opacity:0;
+  transition: width .25s ease, opacity .2s ease;
+  box-shadow: 0 0 8px rgba(18,163,161,0.6);
+}
+.top-loader.is-active { opacity:1; }
+
+/* ---------- Full-page loader ---------- */
+.app-loader {
+  position: fixed; inset:0; z-index:250;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px;
+  background: var(--bg);
+  transition: opacity .35s ease, visibility .35s ease;
+}
+.app-loader.loader-hidden { opacity:0; visibility:hidden; pointer-events:none; }
+.app-loader .loader-logo {
+  width:52px; height:52px; border-radius:14px; background: var(--navy);
+  color:#fff; display:flex; align-items:center; justify-content:center;
+  font-weight:700; font-size:18px; letter-spacing:.5px;
+  animation: pulseLogo 1.6s ease-in-out infinite;
+}
+.app-loader .loader-ring {
+  width:34px; height:34px; border-radius:50%;
+  border: 3px solid var(--border); border-top-color: var(--teal);
+  animation: spin .8s linear infinite;
+}
+.app-loader .loader-text { font-size:13px; color:var(--muted); font-weight:600; }
+.app-loader .loader-dots span {
+  display:inline-block; width:5px; height:5px; margin:0 2px; border-radius:50%;
+  background: var(--teal); animation: dotBounce 1.2s infinite ease-in-out;
+}
+.app-loader .loader-dots span:nth-child(2) { animation-delay: .15s; }
+.app-loader .loader-dots span:nth-child(3) { animation-delay: .3s; }
+
+/* ---------- Inline / section spinners ---------- */
+.spinner {
+  width:18px; height:18px; border-radius:50%;
+  border:2.5px solid rgba(15,41,66,0.12); border-top-color: var(--teal);
+  animation: spin .7s linear infinite; display:inline-block; flex-shrink:0;
+}
+.spinner-lg { width:28px; height:28px; border-width:3px; }
+.loading-state {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:12px; padding:60px 20px; color:var(--muted); font-size:13px; font-weight:600;
+  animation: fadeIn .25s ease both;
+}
+button[disabled] { opacity:.7; cursor:not-allowed; }
+button .spinner { border-color: rgba(255,255,255,0.35); border-top-color:#fff; }
+.btn-secondary .spinner, .btn-danger .spinner { border-color: rgba(15,41,66,0.12); border-top-color: var(--teal); }
 
 /* ---------- Layout ---------- */
 .layout { display:flex; min-height:100vh; }
@@ -51,7 +126,7 @@ body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-ser
   transition: background .18s ease, color .18s ease, transform .18s ease, padding-left .18s ease;
   animation: slideInLeft .35s ease both;
 }
-.nav-item .nav-icon { font-size:15px; width:18px; text-align:center; }
+.nav-item .nav-icon { width:18px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
 .nav-item:hover { background: rgba(255,255,255,0.08); color:#fff; padding-left:16px; }
 .nav-item.active { background: rgba(14,124,123,0.25); color:#fff; }
 .nav-item.active::before {
@@ -84,7 +159,7 @@ body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-ser
   animation: fadeInUp .35s ease both;
 }
 
-.page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 22px; flex-wrap:wrap; gap:12px; }
+.page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 22px; flex-wrap:wrap; gap:12px; animation: fadeInUp .3s ease both; }
 .page-header h1 { font-size: 21px; color: var(--navy); margin:0 0 3px; }
 .page-header .sub { color: var(--muted); font-size: 13px; }
 .header-actions { display:flex; gap:8px; flex-wrap:wrap; }
@@ -102,6 +177,9 @@ header.topbar .sub { color: var(--muted); font-size: 13px; }
 .toolbar { display:flex; gap:10px; margin-bottom: 16px; flex-wrap: wrap; align-items:center; }
 .toolbar input, .toolbar select { padding: 8px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px; transition: border-color .15s ease, box-shadow .15s ease; }
 .toolbar input:focus, .toolbar select:focus { outline:none; border-color: var(--teal); box-shadow: 0 0 0 3px rgba(14,124,123,0.12); }
+.search-wrap { position:relative; display:flex; align-items:center; }
+.search-wrap .icon { position:absolute; left:9px; top:50%; transform:translateY(-50%); color:var(--muted); pointer-events:none; }
+.search-wrap input { padding-left:30px; min-width:220px; }
 
 @media (max-width: 880px) {
   .sidebar { transform: translateX(-100%); }
