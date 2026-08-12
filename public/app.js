@@ -563,6 +563,8 @@ function wireUsersView() {
 }
 
 /* ---------- Pengaturan Perusahaan tab ---------- */
+let settingsActiveTab = 'company'; // 'company' | 'customers'
+
 function settingsViewHtml() {
   const t = VIEW_TITLES.settings;
   const co = state.settings.company || {
@@ -573,53 +575,63 @@ function settingsViewHtml() {
     <header class="page-header">
       <div>
         <h1>${t.icon} ${t.title}</h1>
-        <div class="sub">Data ini dipakai untuk kop &amp; tanda tangan di hasil cetak invoice</div>
+        <div class="sub">Data perusahaan sendiri untuk kop &amp; tanda tangan, dan data perusahaan customer</div>
       </div>
     </header>
 
-    <div class="panel">
-      <div class="form-row"><div class="form-group"><label>Nama Perusahaan</label><input id="s_name" value="${co.name}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Subtitle</label><input id="s_subtitle" value="${co.subtitle}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Alamat Baris 1</label><input id="s_addr1" value="${co.address_line1}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Alamat Baris 2</label><input id="s_addr2" value="${co.address_line2}"></div></div>
-      <div class="form-row"><div class="form-group"><label>Telepon/Fax</label><input id="s_phone" value="${co.phone}"></div></div>
-      <div class="form-row">
-        <div class="form-group"><label>Nama Bank</label><input id="s_bank" value="${co.bank_name}"></div>
-        <div class="form-group"><label>Cabang</label><input id="s_branch" value="${co.bank_branch}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Swift Code</label><input id="s_swift" value="${co.swift_code}"></div>
-        <div class="form-group"><label>No. Rekening</label><input id="s_acc" value="${co.account_number}"></div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Nama Penandatangan</label><input id="s_signer" value="${co.signer_name}"></div>
-        <div class="form-group"><label>Jabatan</label><input id="s_title" value="${co.signer_title}"></div>
-      </div>
-      <div id="settingsSaved" class="saved-msg"></div>
-      <div class="modal-actions" style="justify-content:flex-start">
-        <button class="btn-primary" id="btnSaveS">${icon('check')} Simpan Perubahan</button>
+    <div class="settings-tabs" role="tablist">
+      <button type="button" class="settings-tab-btn ${settingsActiveTab === 'company' ? 'active' : ''}" data-tab="company">${icon('settings', 'icon-sm')} Data Perusahaan Saya</button>
+      <button type="button" class="settings-tab-btn ${settingsActiveTab === 'customers' ? 'active' : ''}" data-tab="customers">${icon('plus', 'icon-sm')} Data Customer</button>
+    </div>
+
+    <div id="tabPanelCompany" class="settings-tab-panel ${settingsActiveTab === 'company' ? 'active' : ''}">
+      <div class="panel">
+        <div class="sub" style="margin:-4px 0 16px;color:var(--muted);font-size:12.5px">Data ini dipakai untuk kop &amp; tanda tangan di hasil cetak invoice</div>
+        <div class="form-row"><div class="form-group"><label>Nama Perusahaan</label><input id="s_name" value="${co.name}"></div></div>
+        <div class="form-row"><div class="form-group"><label>Subtitle</label><input id="s_subtitle" value="${co.subtitle}"></div></div>
+        <div class="form-row"><div class="form-group"><label>Alamat Baris 1</label><input id="s_addr1" value="${co.address_line1}"></div></div>
+        <div class="form-row"><div class="form-group"><label>Alamat Baris 2</label><input id="s_addr2" value="${co.address_line2}"></div></div>
+        <div class="form-row"><div class="form-group"><label>Telepon/Fax</label><input id="s_phone" value="${co.phone}"></div></div>
+        <div class="form-row">
+          <div class="form-group"><label>Nama Bank</label><input id="s_bank" value="${co.bank_name}"></div>
+          <div class="form-group"><label>Cabang</label><input id="s_branch" value="${co.bank_branch}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Swift Code</label><input id="s_swift" value="${co.swift_code}"></div>
+          <div class="form-group"><label>No. Rekening</label><input id="s_acc" value="${co.account_number}"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Nama Penandatangan</label><input id="s_signer" value="${co.signer_name}"></div>
+          <div class="form-group"><label>Jabatan</label><input id="s_title" value="${co.signer_title}"></div>
+        </div>
+        <div id="settingsSaved" class="saved-msg"></div>
+        <div class="modal-actions" style="justify-content:flex-start">
+          <button class="btn-primary" id="btnSaveS">${icon('check')} Simpan Perubahan</button>
+        </div>
       </div>
     </div>
 
-    <div class="panel" style="margin-top:20px">
-      <h2>Data Customer</h2>
-      <div class="sub" style="margin:-8px 0 16px;color:var(--muted);font-size:12.5px">Dipakai untuk mengisi ATTN, alamat, dan currency default secara otomatis saat membuat invoice baru.</div>
-      <table class="items-table" id="customersTable">
-        <thead><tr>
-          <th style="width:22%">Nama Customer</th>
-          <th style="width:10%">Kode</th>
-          <th style="width:9%">Currency</th>
-          <th style="width:27%">Alamat</th>
-          <th style="width:20%">Default ATTN</th>
-          <th></th>
-        </tr></thead>
-        <tbody id="customersBody"></tbody>
-      </table>
-      <button class="btn-secondary btn-icon" id="btnAddCustomer" type="button">${icon('plus', 'icon-sm')} Tambah Customer</button>
-      <div id="customersError" class="error-msg"></div>
-      <div id="customersSaved" class="saved-msg"></div>
-      <div class="modal-actions" style="justify-content:flex-start">
-        <button class="btn-primary" id="btnSaveCustomers">${icon('check')} Simpan Data Customer</button>
+    <div id="tabPanelCustomers" class="settings-tab-panel ${settingsActiveTab === 'customers' ? 'active' : ''}">
+      <div class="panel">
+        <h2>Data Customer</h2>
+        <div class="sub" style="margin:-8px 0 16px;color:var(--muted);font-size:12.5px">Dipakai untuk mengisi ATTN, alamat, dan currency default secara otomatis saat membuat invoice baru.</div>
+        <table class="items-table" id="customersTable">
+          <thead><tr>
+            <th style="width:22%">Nama Customer</th>
+            <th style="width:10%">Kode</th>
+            <th style="width:9%">Currency</th>
+            <th style="width:27%">Alamat</th>
+            <th style="width:20%">Default ATTN</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="customersBody"></tbody>
+        </table>
+        <button class="btn-secondary btn-icon" id="btnAddCustomer" type="button">${icon('plus', 'icon-sm')} Tambah Customer</button>
+        <div id="customersError" class="error-msg"></div>
+        <div id="customersSaved" class="saved-msg"></div>
+        <div class="modal-actions" style="justify-content:flex-start">
+          <button class="btn-primary" id="btnSaveCustomers">${icon('check')} Simpan Data Customer</button>
+        </div>
       </div>
     </div>
   `;
@@ -660,6 +672,15 @@ function renderCustomersBody() {
 }
 
 function wireSettingsView() {
+  document.querySelectorAll('.settings-tab-btn').forEach(btn => {
+    btn.onclick = () => {
+      settingsActiveTab = btn.dataset.tab;
+      document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === settingsActiveTab));
+      document.getElementById('tabPanelCompany').classList.toggle('active', settingsActiveTab === 'company');
+      document.getElementById('tabPanelCustomers').classList.toggle('active', settingsActiveTab === 'customers');
+    };
+  });
+
   const saveBtn = document.getElementById('btnSaveS');
   const saveBtnOriginal = saveBtn.innerHTML;
   saveBtn.onclick = async () => {
