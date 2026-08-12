@@ -1,10 +1,54 @@
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const XLSX = require('xlsx');
 const { getSupabase } = require('../lib/supabaseClient');
 const { nextInvoiceNumber, numFmt } = require('../lib/utils');
+const { COOKIE_NAME, verifyPassword, signToken, requireAuth, requireRole } = require('../lib/auth');
 
 const app = express();
 app.use(express.json());
+app.use(cookieParser());
+
+const cookieOpts = {
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production',
+  maxAge: 7 * 24 * 60 * 60 * 1000
+};
+
+// ---------- Auth ----------
+app.post('/api/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username dan password wajib diisi' });
+    const supabase = getSupabase();
+    const { data: user, error } = await supabase.from('users').select('*').eq('username', username).single();
+    if (error || !user) return res.status(401).json({ error: 'Username atau password salah' });
+    const ok = await verifyPassword(password, user.password_hash);
+    if (!ok) return res.status(401).json({ error: 'Username atau password salah' });
+    const token = signToken({ sub: user.id, username: user.username, role: user.role, name: user.name });
+    res.cookie(COOKIE_NAME, token, cookieOpts);
+    res.json({ username: user.username, role: user.role, name: user.name });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/logout', (req, res) => {
+  res.clearCookie(COOKIE_NAME);
+  res.json({ ok: true });
+});
+
+app.get('/api/me', (req, res) => {
+  const token = req.cookies && req.cookies[COOKIE_NAME];
+  const { verifyToken } = require('../lib/auth');
+  const user = token ? verifyToken(token) : null;
+  if (!user) return res.json(null);
+  res.json({ username: user.username, role: user.role, name: user.name });
+});
+
+// Semua route /api/* di bawah ini wajib login
+app.use('/api', requireAuth);
 
 // ---------- Settings ----------
 app.get('/api/settings', async (req, res) => {
@@ -97,11 +141,18 @@ app.post('/api/invoices', async (req, res) => {
     if (!invoice_no || !invoice_date || !customer_name) {
       return res.status(400).json({ error: 'invoice_no, invoice_date, customer_name wajib diisi' });
     }
+    const isManager = req.user.role === 'manager';
+    const nowIso = new Date().toISOString();
     const { data: inv, error: invErr } = await supabase.from('invoices').insert({
       invoice_no, invoice_date, due_date: due_date || null, customer_name,
       customer_address: customer_address || '', attn: attn || '', currency: currency || 'IDR',
       batch: batch || '', remark: remark || '', status: status || 'Belum Dibayar',
-      exchange_rate: exchange_rate || null
+      exchange_rate: exchange_rate || null,
+      created_by: req.user.username,
+      created_by_role: req.user.role,
+      approval_status: isManager ? 'approved' : 'pending',
+      approved_by: isManager ? req.user.username : null,
+      approved_at: isManager ? nowIso : null
     }).select().single();
     if (invErr) {
       if (invErr.code === '23505') return res.status(400).json({ error: 'Nomor invoice sudah digunakan' });
@@ -122,11 +173,16 @@ app.put('/api/invoices/:id', async (req, res) => {
   try {
     const supabase = getSupabase();
     const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, status, exchange_rate } = req.body;
+    const isManager = req.user.role === 'manager';
+    const nowIso = new Date().toISOString();
     const { error: updErr } = await supabase.from('invoices').update({
       invoice_no, invoice_date, due_date: due_date || null, customer_name,
       customer_address: customer_address || '', attn: attn || '', currency: currency || 'IDR',
       batch: batch || '', remark: remark || '', status: status || 'Belum Dibayar',
-      exchange_rate: exchange_rate || null
+      exchange_rate: exchange_rate || null,
+      approval_status: isManager ? 'approved' : 'pending',
+      approved_by: isManager ? req.user.username : null,
+      approved_at: isManager ? nowIso : null
     }).eq('id', req.params.id);
     if (updErr) {
       if (updErr.code === '23505') return res.status(400).json({ error: 'Nomor invoice sudah digunakan' });
@@ -138,6 +194,22 @@ app.put('/api/invoices/:id', async (req, res) => {
       const { error: itemErr } = await supabase.from('invoice_items').insert(itemRows);
       if (itemErr) throw itemErr;
     }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Manager menyetujui invoice buatan staff — tanda tangan baru muncul di print setelah ini
+app.post('/api/invoices/:id/approve', requireRole('manager'), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from('invoices').update({
+      approval_status: 'approved',
+      approved_by: req.user.username,
+      approved_at: new Date().toISOString()
+    }).eq('id', req.params.id);
+    if (error) throw error;
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -250,6 +322,10 @@ app.get('/api/invoices/:id/print', async (req, res) => {
         </tbody>
       </table>
       ${exRateLine}
+      ${inv.approval_status !== 'approved' ? `
+      <div class="pending-notice no-print" style="margin-top:16px;padding:10px 14px;border:1px solid #c0392b;color:#c0392b;font-family:Arial,sans-serif;font-size:10pt;">
+        ⚠ Invoice ini belum disetujui Manager — tanda tangan belum muncul. Status akan berubah otomatis setelah di-approve.
+      </div>` : ''}
       <div class="footer">
         <div class="bank-block">
           <div class="co-repeat">${co.name}</div>
@@ -260,8 +336,11 @@ app.get('/api/invoices/:id/print', async (req, res) => {
         </div>
         <div class="sig-block">
           <div class="sig-issuer">${co.name}</div>
+          ${inv.approval_status === 'approved' ? `
           <div class="sig-name">${co.signer_name}</div>
-          <div class="sig-title">${co.signer_title}</div>
+          <div class="sig-title">${co.signer_title}</div>` : `
+          <div style="height:59px;display:flex;align-items:center;justify-content:center;font-size:9pt;color:#999;font-family:Arial,sans-serif;">( Menunggu persetujuan Manager )</div>
+          <div class="sig-title" style="visibility:hidden">-</div>`}
         </div>
       </div>
       <button class="no-print" onclick="window.print()" style="margin-top:30px;padding:8px 16px;">Print / Save as PDF</button>

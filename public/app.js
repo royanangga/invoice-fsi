@@ -1,13 +1,21 @@
 const app = document.getElementById('app');
-let state = { invoices: [], settings: { customers: [] }, filters: { q: '', status: '', customer: '' } };
+let state = { invoices: [], settings: { customers: [] }, filters: { q: '', status: '', customer: '' }, me: null };
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
+  if (res.status === 401) { window.location.href = 'login.html'; throw new Error('Belum login'); }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Terjadi kesalahan' }));
     throw new Error(err.error || 'Terjadi kesalahan');
   }
   return res.json();
+}
+
+async function checkAuth() {
+  const me = await fetch('/api/me').then(r => r.json());
+  if (!me) { window.location.href = 'login.html'; return false; }
+  state.me = me;
+  return true;
 }
 
 async function loadAll() {
@@ -35,16 +43,18 @@ function fmt(n, cur) {
 }
 
 function render() {
+  const me = state.me;
   app.innerHTML = `
     <header class="topbar">
       <div>
         <h1>Aplikasi Invoice</h1>
-        <div class="sub">PT. Fuji Seat Indonesia — data lokal</div>
+        <div class="sub">PT. Fuji Seat Indonesia — masuk sebagai ${me.name} (${me.role === 'manager' ? 'Manager' : 'Staff'})</div>
       </div>
       <div>
         <button class="btn-secondary" id="btnExport">Export Excel</button>
         <button class="btn-secondary" id="btnSettings">Pengaturan Perusahaan</button>
         <button class="btn-primary" id="btnNew">+ Invoice Baru</button>
+        <button class="btn-secondary" id="btnLogout">Keluar</button>
       </div>
     </header>
 
@@ -65,7 +75,7 @@ function render() {
 
     ${state.invoices.length === 0 ? `<div class="empty-state">Belum ada invoice. Klik "+ Invoice Baru" untuk mulai.</div>` : `
     <table class="list">
-      <thead><tr><th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th></tr></thead>
       <tbody>
         ${state.invoices.map(inv => `
           <tr>
@@ -75,6 +85,12 @@ function render() {
             <td>${inv.remark || ''}</td>
             <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
             <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : 'badge-unpaid'}">${inv.status}</span></td>
+            <td>
+              <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
+                ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
+              </span>
+              ${inv.approval_status !== 'approved' && me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">Approve</button>` : ''}
+            </td>
             <td>
               <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">Print</button>
               <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">Edit</button>
@@ -89,10 +105,16 @@ function render() {
   document.getElementById('btnNew').onclick = () => openForm();
   document.getElementById('btnExport').onclick = () => window.open('/api/export', '_blank');
   document.getElementById('btnSettings').onclick = () => openSettingsForm();
+  document.getElementById('btnLogout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); window.location.href = 'login.html'; };
   document.getElementById('q').oninput = debounce(e => { state.filters.q = e.target.value; loadAll(); }, 350);
   document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; loadAll(); };
   document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; loadAll(); };
 }
+
+window.approveInvoice = async (id) => {
+  await api(`/api/invoices/${id}/approve`, { method: 'POST' });
+  loadAll();
+};
 
 function debounce(fn, ms) {
   let t;
@@ -276,7 +298,10 @@ async function openForm(existing) {
   };
 }
 
-loadAll();
+(async () => {
+  const ok = await checkAuth();
+  if (ok) loadAll();
+})();
 
 async function openSettingsForm() {
   const co = state.settings.company || {

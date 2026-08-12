@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "node api/index.js",
     "start": "node api/index.js",
-    "import-xls": "node import-xls-supabase.js"
+    "import-xls": "node import-xls-supabase.js",
+    "create-user": "node create-user.js"
   },
   "license": "ISC",
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
     "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

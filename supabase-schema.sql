@@ -13,6 +13,11 @@ create table if not exists invoices (
   remark text,
   status text not null default 'Belum Dibayar',
   exchange_rate numeric,
+  created_by text,
+  created_by_role text,
+  approval_status text not null default 'pending' check (approval_status in ('pending', 'approved')),
+  approved_by text,
+  approved_at timestamptz,
   created_at timestamptz default now()
 );
 
@@ -28,6 +33,18 @@ create table if not exists settings (
   key text primary key,
   value jsonb
 );
+
+create table if not exists users (
+  id bigint generated always as identity primary key,
+  username text unique not null,
+  password_hash text not null,
+  name text not null,
+  role text not null check (role in ('staff', 'manager')),
+  created_at timestamptz default now()
+);
+-- Catatan: akun login TIDAK diisi lewat SQL ini. Buat akun lewat script
+-- `create-user.js` (lihat README) supaya password di-hash dengan aman,
+-- bukan disimpan sebagai teks biasa.
 
 -- Data awal: daftar customer & format nomor invoice
 insert into settings (key, value) values

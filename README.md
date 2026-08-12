@@ -23,7 +23,6 @@ tidak bergantung ke satu komputer/browser tertentu.
    - **service_role key** (di bagian "Project API keys" — bukan yang `anon public`!)
 
    ⚠️ **service_role key ini rahasia**, jangan pernah taruh di kode frontend atau commit ke GitHub. Nanti hanya dipakai sebagai environment variable di Vercel.
-
 ## Langkah 2 — Push kode ke GitHub
 
 Kalau belum pernah pakai Git/GitHub sama sekali:
@@ -51,10 +50,29 @@ File `.gitignore` sudah disiapkan supaya `node_modules/` dan `.env` (yang berisi
 4. Sebelum klik Deploy, buka bagian **Environment Variables**, tambahkan:
    - `SUPABASE_URL` → isi dengan Project URL dari Langkah 1
    - `SUPABASE_SERVICE_KEY` → isi dengan service_role key dari Langkah 1
+   - `JWT_SECRET` → isi string acak yang panjang & rahasia (bebas, contoh: hasil ketik acak 40+ karakter). Ini dipakai untuk mengamankan sesi login.
 5. Klik **Deploy**. Tunggu ~1 menit.
 6. Setelah selesai, Vercel kasih URL seperti `https://invoice-app-fuji-seat.vercel.app` — itu link aplikasinya, bisa dibuka dari mana saja.
 
-## Langkah 4 — Import data lama dari Excel (sekali saja)
+## Langkah 4 — Buat akun login (staff & manager)
+
+Aplikasi ini butuh login. Buat akun dari komputer kamu (sekali per akun):
+
+1. Pastikan file `.env` sudah ada (Langkah 5 di bawah menjelaskan cara buatnya).
+2. Jalankan untuk tiap akun yang dibutuhkan, misalnya:
+   ```
+   npm run create-user -- --username nono --password passwordAman123 --role manager --name "Nono Suhena"
+   npm run create-user -- --username budi --password passwordStaff123 --role staff --name "Budi Santoso"
+   ```
+3. Sekarang buka link Vercel-nya → akan diarahkan ke halaman login → masuk pakai username/password yang baru dibuat.
+
+**Perbedaan role:**
+- **Staff & Manager** punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan.
+- **Bedanya**: invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager"). Setelah **manager** klik tombol **Approve** di daftar invoice, tanda tangan otomatis muncul di invoice tersebut.
+- Invoice yang dibuat langsung oleh **manager** otomatis berstatus "Disetujui" (tidak perlu approval lagi).
+- Kalau **staff mengedit** invoice yang sudah disetujui, statusnya otomatis kembali ke "Menunggu Approval" (karena isinya berubah, perlu dicek ulang oleh manager).
+
+## Langkah 5 — Import data lama dari Excel (sekali saja)
 
 Ini dijalankan dari komputer kamu (bukan di Vercel), supaya bisa akses file Excel-nya:
 
@@ -80,10 +98,13 @@ Buka `http://localhost:3210`. Ini tetap terhubung ke Supabase yang sama (lewat `
 ```
 api/index.js              → seluruh backend (Express, jadi 1 serverless function)
 public/                   → frontend (otomatis di-host statis oleh Vercel)
+public/login.html         → halaman login
 lib/supabaseClient.js     → koneksi ke Supabase
+lib/auth.js               → hashing password & sesi login (JWT + cookie)
 lib/utils.js              → helper (nomor invoice otomatis, format angka)
 supabase-schema.sql       → skema database, jalankan sekali di Supabase SQL Editor
 import-xls-supabase.js    → script import data lama dari Excel
+create-user.js            → script membuat akun staff/manager
 vercel.json               → konfigurasi routing Vercel
 .env.example              → contoh isi file .env
 ```
