@@ -118,17 +118,17 @@ button .spinner { border-color: rgba(255,255,255,0.35); border-top-color:#fff; }
 
 .sidebar-nav { display:flex; flex-direction:column; gap:2px; padding:14px 0; flex:1; overflow-y:auto; }
 .nav-item {
-  display:flex; align-items:center; justify-content:flex-start; gap:10px;
+  display:flex; align-items:center; justify-content:center; gap:10px;
   width:100%;
   background:transparent; color:rgba(255,255,255,0.75);
-  border:none; border-radius:0; padding:11px 22px;
-  font-size:13px; font-weight:600; text-align:left; cursor:pointer;
+  border:none; border-radius:0; padding:11px 12px;
+  font-size:13px; font-weight:600; text-align:center; cursor:pointer;
   position:relative;
-  transition: background .18s ease, color .18s ease, transform .18s ease, padding-left .18s ease;
+  transition: background .18s ease, color .18s ease;
   animation: slideInLeft .35s ease both;
 }
 .nav-item .nav-icon { width:18px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
-.nav-item:hover { background: rgba(255,255,255,0.08); color:#fff; padding-left:26px; }
+.nav-item:hover { background: rgba(255,255,255,0.08); color:#fff; }
 .nav-item.active { background: rgba(14,124,123,0.25); color:#fff; }
 .nav-item.active::before {
   content:''; position:absolute; left:0; top:50%; transform:translateY(-50%);
