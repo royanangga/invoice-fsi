@@ -9,7 +9,7 @@ const { COOKIE_NAME, hashPassword, verifyPassword, signToken, requireAuth, requi
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-app.use(express.json());
+app.use(express.json({ limit: '4mb' }));
 app.use(cookieParser());
 
 const cookieOpts = {
@@ -48,6 +48,19 @@ app.get('/api/me', (req, res) => {
   const user = token ? verifyToken(token) : null;
   if (!user) return res.json(null);
   res.json({ username: user.username, role: user.role, name: user.name });
+});
+
+// Info branding minimal (logo & nama perusahaan) dipakai untuk favicon — sengaja tanpa auth
+// karena dibutuhkan di halaman login sebelum user masuk, dan tidak berisi data sensitif.
+app.get('/api/public/branding', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data } = await supabase.from('settings').select('value').eq('key', 'company').single();
+    const co = data ? data.value : null;
+    res.json({ logo: (co && co.logo) || null, name: (co && co.name) || null });
+  } catch (e) {
+    res.json({ logo: null, name: null });
+  }
 });
 
 // Semua route /api/* di bawah ini wajib login
@@ -296,7 +309,7 @@ app.get('/api/invoices/:id/print', async (req, res) => {
     const { data: companyRow } = await supabase.from('settings').select('value').eq('key', 'company').single();
     const co = companyRow ? companyRow.value : {
       name: 'PT. FUJI SEAT INDONESIA', subtitle: '', address_line1: '', address_line2: '', phone: '',
-      bank_name: '', bank_branch: '', swift_code: '', account_number: '', signer_name: '', signer_title: ''
+      bank_name: '', bank_branch: '', swift_code: '', account_number: '', signer_name: '', signer_title: '', logo: null
     };
     const items = inv.items || [];
     const total = items.reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
@@ -318,6 +331,9 @@ app.get('/api/invoices/:id/print', async (req, res) => {
       @page { size: A4; margin: 18mm 15mm; }
       * { box-sizing: border-box; }
       body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #000; margin:0; padding: 0; }
+      .co-header { display:flex; align-items:center; gap:16px; }
+      .co-logo { width:74px; height:74px; object-fit:contain; flex-shrink:0; }
+      .co-info { flex:1; }
       .co-name { font-size: 20pt; font-weight: bold; text-align:center; margin:0; }
       .co-line { font-size: 12pt; text-align:center; }
       .spacer-sm { height: 14px; }
@@ -351,11 +367,16 @@ app.get('/api/invoices/:id/print', async (req, res) => {
       .footer .sig-title { font-weight:bold; }
       @media print { .no-print { display:none; } }
     </style></head><body>
-      <p class="co-name">${co.name}</p>
-      <p class="co-line">${co.subtitle}</p>
-      <p class="co-line">${co.address_line1}</p>
-      <p class="co-line">${co.address_line2}</p>
-      <p class="co-line">${co.phone}</p>
+      <div class="co-header">
+        ${co.logo ? `<img class="co-logo" src="${co.logo}">` : ''}
+        <div class="co-info">
+          <p class="co-name">${co.name}</p>
+          <p class="co-line">${co.subtitle}</p>
+          <p class="co-line">${co.address_line1}</p>
+          <p class="co-line">${co.address_line2}</p>
+          <p class="co-line">${co.phone}</p>
+        </div>
+      </div>
       <div class="spacer-md"></div>
       <div class="to-label">TO :</div>
       <div class="customer-name">${inv.customer_name}</div>

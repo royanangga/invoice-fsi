@@ -4,7 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Aplikasi Invoice — PT. Fuji Seat Indonesia</title>
+<link rel="icon" id="faviconLink" href="data:,">
 <link rel="stylesheet" href="style.css">
+<script>
+  fetch('/api/public/branding').then(r => r.json()).then(b => {
+    if (b && b.logo) document.getElementById('faviconLink').href = b.logo;
+  }).catch(() => {});
+</script>
 </head>
 <body>
   <div id="topLoader" class="top-loader"></div>

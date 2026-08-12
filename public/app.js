@@ -119,10 +119,10 @@ function renderShell() {
     <div class="layout" id="layout">
       <aside class="sidebar">
         <div class="sidebar-brand">
-          <div class="brand-logo">FS</div>
+          <div class="brand-logo">${state.settings.company && state.settings.company.logo ? `<img src="${state.settings.company.logo}" alt="Logo">` : 'FS'}</div>
           <div class="brand-text">
             <div class="brand-title">Invoice App</div>
-            <div class="brand-sub">Fuji Seat Indonesia</div>
+            <div class="brand-sub">${(state.settings.company && state.settings.company.name) || 'Fuji Seat Indonesia'}</div>
           </div>
         </div>
         <nav class="sidebar-nav">
@@ -564,6 +564,7 @@ function wireUsersView() {
 
 /* ---------- Pengaturan Perusahaan tab ---------- */
 let settingsActiveTab = 'company'; // 'company' | 'customers'
+let pendingLogoDataUrl = null;
 
 function settingsViewHtml() {
   const t = VIEW_TITLES.settings;
@@ -587,6 +588,21 @@ function settingsViewHtml() {
     <div id="tabPanelCompany" class="settings-tab-panel ${settingsActiveTab === 'company' ? 'active' : ''}">
       <div class="panel">
         <div class="sub" style="margin:-4px 0 16px;color:var(--muted);font-size:12.5px">Data ini dipakai untuk kop &amp; tanda tangan di hasil cetak invoice</div>
+
+        <div class="logo-uploader">
+          <div class="logo-preview" id="logoPreview">${co.logo ? `<img src="${co.logo}" alt="Logo">` : `<span>Belum ada logo</span>`}</div>
+          <div class="logo-uploader-actions">
+            <label>Logo Perusahaan</label>
+            <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">Dipakai untuk favicon/icon website dan kop invoice. Format PNG/JPG, disarankan persegi, maksimal ±1MB.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-secondary btn-icon" id="btnPickLogo" type="button">${icon('plus', 'icon-sm')} ${co.logo ? 'Ganti Logo' : 'Pilih Logo'}</button>
+              ${co.logo ? `<button class="btn-danger btn-icon" id="btnRemoveLogo" type="button">${icon('trash', 'icon-sm')} Hapus Logo</button>` : ''}
+            </div>
+            <input type="file" id="logoFileInput" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="display:none">
+            <div id="logoError" class="error-msg"></div>
+          </div>
+        </div>
+
         <div class="form-row"><div class="form-group"><label>Nama Perusahaan</label><input id="s_name" value="${co.name}"></div></div>
         <div class="form-row"><div class="form-group"><label>Subtitle</label><input id="s_subtitle" value="${co.subtitle}"></div></div>
         <div class="form-row"><div class="form-group"><label>Alamat Baris 1</label><input id="s_addr1" value="${co.address_line1}"></div></div>
@@ -681,6 +697,36 @@ function wireSettingsView() {
     };
   });
 
+  pendingLogoDataUrl = (state.settings.company && state.settings.company.logo) || null;
+  const logoInput = document.getElementById('logoFileInput');
+  const logoErr = document.getElementById('logoError');
+  document.getElementById('btnPickLogo').onclick = () => logoInput.click();
+  logoInput.onchange = () => {
+    logoErr.textContent = '';
+    const file = logoInput.files[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) {
+      logoErr.textContent = 'Ukuran file terlalu besar, maksimal ±1.5MB.';
+      logoInput.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingLogoDataUrl = reader.result;
+      document.getElementById('logoPreview').innerHTML = `<img src="${pendingLogoDataUrl}" alt="Logo">`;
+    };
+    reader.onerror = () => { logoErr.textContent = 'Gagal membaca file gambar.'; };
+    reader.readAsDataURL(file);
+  };
+  const removeBtn = document.getElementById('btnRemoveLogo');
+  if (removeBtn) {
+    removeBtn.onclick = () => {
+      pendingLogoDataUrl = null;
+      logoInput.value = '';
+      document.getElementById('logoPreview').innerHTML = `<span>Belum ada logo</span>`;
+    };
+  }
+
   const saveBtn = document.getElementById('btnSaveS');
   const saveBtnOriginal = saveBtn.innerHTML;
   saveBtn.onclick = async () => {
@@ -696,12 +742,17 @@ function wireSettingsView() {
       swift_code: document.getElementById('s_swift').value,
       account_number: document.getElementById('s_acc').value,
       signer_name: document.getElementById('s_signer').value,
-      signer_title: document.getElementById('s_title').value
+      signer_title: document.getElementById('s_title').value,
+      logo: pendingLogoDataUrl
     };
     const saved = document.getElementById('settingsSaved');
     try {
       await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ company }) });
       state.settings.company = company;
+      const brandLogo = document.querySelector('.brand-logo');
+      if (brandLogo) brandLogo.innerHTML = company.logo ? `<img src="${company.logo}" alt="Logo">` : 'FS';
+      const favicon = document.getElementById('faviconLink');
+      if (favicon && company.logo) favicon.href = company.logo;
       saved.classList.remove('is-error');
       saved.innerHTML = `${icon('check', 'icon-sm')} Perubahan tersimpan`;
       setTimeout(() => { saved.textContent = ''; }, 2500);
