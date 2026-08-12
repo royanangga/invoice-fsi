@@ -600,7 +600,63 @@ function settingsViewHtml() {
         <button class="btn-primary" id="btnSaveS">${icon('check')} Simpan Perubahan</button>
       </div>
     </div>
+
+    <div class="panel" style="margin-top:20px">
+      <h2>Data Customer</h2>
+      <div class="sub" style="margin:-8px 0 16px;color:var(--muted);font-size:12.5px">Dipakai untuk mengisi ATTN, alamat, dan currency default secara otomatis saat membuat invoice baru.</div>
+      <table class="items-table" id="customersTable">
+        <thead><tr>
+          <th style="width:22%">Nama Customer</th>
+          <th style="width:10%">Kode</th>
+          <th style="width:9%">Currency</th>
+          <th style="width:27%">Alamat</th>
+          <th style="width:20%">Default ATTN</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="customersBody"></tbody>
+      </table>
+      <button class="btn-secondary btn-icon" id="btnAddCustomer" type="button">${icon('plus', 'icon-sm')} Tambah Customer</button>
+      <div id="customersError" class="error-msg"></div>
+      <div id="customersSaved" class="saved-msg"></div>
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="btn-primary" id="btnSaveCustomers">${icon('check')} Simpan Data Customer</button>
+      </div>
+    </div>
   `;
+}
+
+let editableCustomers = [];
+
+function renderCustomersBody() {
+  const body = document.getElementById('customersBody');
+  if (!body) return;
+  body.innerHTML = editableCustomers.length === 0
+    ? `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px 4px">Belum ada customer. Klik "Tambah Customer" untuk mulai.</td></tr>`
+    : editableCustomers.map((c, i) => `
+    <tr>
+      <td><input value="${c.name || ''}" data-i="${i}" data-field="name" placeholder="Nama customer"></td>
+      <td><input value="${c.code || ''}" data-i="${i}" data-field="code" placeholder="Kode"></td>
+      <td>
+        <select data-i="${i}" data-field="currency">
+          <option value="IDR" ${c.currency === 'IDR' ? 'selected' : ''}>IDR</option>
+          <option value="USD" ${c.currency === 'USD' ? 'selected' : ''}>USD</option>
+          <option value="JPY" ${c.currency === 'JPY' ? 'selected' : ''}>JPY</option>
+        </select>
+      </td>
+      <td><input value="${c.address || ''}" data-i="${i}" data-field="address" placeholder="Alamat lengkap"></td>
+      <td><input value="${c.attn || ''}" data-i="${i}" data-field="attn" placeholder="mis. Bpk. Andi"></td>
+      <td><button class="btn-danger btn-icon" data-remove-c="${i}" type="button">${icon('trash', 'icon-sm')}</button></td>
+    </tr>
+  `).join('');
+  body.querySelectorAll('input, select').forEach(inp => {
+    inp.oninput = inp.onchange = e => {
+      const i = +e.target.dataset.i;
+      editableCustomers[i][e.target.dataset.field] = e.target.value;
+    };
+  });
+  body.querySelectorAll('[data-remove-c]').forEach(btn => {
+    btn.onclick = () => { editableCustomers.splice(+btn.dataset.removeC, 1); renderCustomersBody(); };
+  });
 }
 
 function wireSettingsView() {
@@ -635,6 +691,45 @@ function wireSettingsView() {
       saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOriginal;
     }
   };
+
+  editableCustomers = (state.settings.customers || []).map(c => ({ ...c }));
+  renderCustomersBody();
+
+  document.getElementById('btnAddCustomer').onclick = () => {
+    editableCustomers.push({ name: '', code: '', currency: 'IDR', address: '', attn: '' });
+    renderCustomersBody();
+  };
+
+  const saveCBtn = document.getElementById('btnSaveCustomers');
+  const saveCBtnOriginal = saveCBtn.innerHTML;
+  saveCBtn.onclick = async () => {
+    const err = document.getElementById('customersError');
+    const savedC = document.getElementById('customersSaved');
+    err.textContent = '';
+    const cleaned = editableCustomers
+      .filter(c => (c.name || '').trim() !== '')
+      .map(c => ({
+        name: c.name.trim(),
+        code: (c.code || '').trim(),
+        currency: c.currency || 'IDR',
+        address: (c.address || '').trim(),
+        attn: (c.attn || '').trim()
+      }));
+    saveCBtn.disabled = true; saveCBtn.innerHTML = spinner() + ' Menyimpan...';
+    try {
+      await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ customers: cleaned }) });
+      state.settings.customers = cleaned;
+      editableCustomers = cleaned.map(c => ({ ...c }));
+      renderCustomersBody();
+      savedC.classList.remove('is-error');
+      savedC.innerHTML = `${icon('check', 'icon-sm')} Data customer tersimpan`;
+      setTimeout(() => { savedC.textContent = ''; }, 2500);
+    } catch (e) {
+      err.textContent = e.message;
+    } finally {
+      saveCBtn.disabled = false; saveCBtn.innerHTML = saveCBtnOriginal;
+    }
+  };
 }
 
 /* ---------- Invoice form (tetap modal, form-nya panjang & kontekstual per baris) ---------- */
@@ -653,7 +748,7 @@ async function openForm(existing) {
         <div class="form-group">
           <label>Customer</label>
           <select id="f_customer">
-            ${customers.map(c => `<option value="${c.name}" data-currency="${c.currency}" data-address="${c.address}" ${existing && existing.customer_name === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
+            ${customers.map(c => `<option value="${c.name}" data-currency="${c.currency}" data-address="${c.address}" data-attn="${c.attn || ''}" ${existing && existing.customer_name === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
           </select>
         </div>
         <div class="form-group">
@@ -750,9 +845,11 @@ async function openForm(existing) {
 
   const customerSel = overlay.querySelector('#f_customer');
   const currencySel = overlay.querySelector('#f_currency');
+  const attnInput = overlay.querySelector('#f_attn');
   customerSel.onchange = () => {
     const opt = customerSel.selectedOptions[0];
     if (opt.dataset.currency) currencySel.value = opt.dataset.currency;
+    if (opt.dataset.attn) attnInput.value = opt.dataset.attn;
   };
 
   const dateInput = overlay.querySelector('#f_date');

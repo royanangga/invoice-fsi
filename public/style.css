@@ -251,7 +251,7 @@ table.list tr:hover td { background:#fafcfc; }
 .items-table { width:100%; border-collapse:collapse; margin-bottom:10px; }
 .items-table th { text-align:left; font-size:11px; color:var(--muted); padding:4px; }
 .items-table td { padding:4px; }
-.items-table input { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:5px; font-size:12px; }
+.items-table input, .items-table select { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:5px; font-size:12px; font-family:inherit; }
 
 .modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px; }
 .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }
