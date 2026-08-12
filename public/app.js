@@ -42,79 +42,126 @@ function fmt(n, cur) {
   return `${cur} ${Number(n).toLocaleString('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function initials(name) {
+  return (name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('') || '?';
+}
+
 function render() {
   const me = state.me;
+  const isManager = me.role === 'manager';
+
   app.innerHTML = `
-    <header class="topbar">
-      <div>
-        <h1>Aplikasi Invoice</h1>
-        <div class="sub">PT. Fuji Seat Indonesia — masuk sebagai ${me.name} (${me.role === 'manager' ? 'Manager' : 'Staff'})</div>
-      </div>
-      <div>
-        <input type="file" id="importFile" accept=".xls,.xlsx" style="display:none">
-        <button class="btn-secondary" id="btnImport">Import dari Excel</button>
-        <button class="btn-secondary" id="btnExport">Export Excel</button>
-        <button class="btn-secondary" id="btnUsers">Kelola User</button>
-        <button class="btn-secondary" id="btnSettings">Pengaturan Perusahaan</button>
-        <button class="btn-primary" id="btnNew">+ Invoice Baru</button>
-        <button class="btn-secondary" id="btnLogout">Keluar</button>
-      </div>
-    </header>
+    <div class="layout" id="layout">
+      <aside class="sidebar">
+        <div class="sidebar-brand">
+          <div class="brand-logo">FS</div>
+          <div class="brand-text">
+            <div class="brand-title">Invoice App</div>
+            <div class="brand-sub">Fuji Seat Indonesia</div>
+          </div>
+        </div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" type="button" style="animation-delay:.02s">
+            <span class="nav-icon">🧾</span> Invoice
+          </button>
+          ${isManager ? `<button class="nav-item" id="navUsers" type="button" style="animation-delay:.06s">
+            <span class="nav-icon">👥</span> Kelola User
+          </button>` : ''}
+          <button class="nav-item" id="navSettings" type="button" style="animation-delay:.10s">
+            <span class="nav-icon">⚙️</span> Pengaturan Perusahaan
+          </button>
+          <button class="nav-item" id="navImport" type="button" style="animation-delay:.14s">
+            <span class="nav-icon">⬆️</span> Import dari Excel
+          </button>
+          <button class="nav-item" id="navExport" type="button" style="animation-delay:.18s">
+            <span class="nav-icon">⬇️</span> Export Excel
+          </button>
+          <input type="file" id="importFile" accept=".xls,.xlsx" style="display:none">
+        </nav>
+        <div class="sidebar-footer">
+          <div class="user-chip">
+            <div class="avatar">${initials(me.name)}</div>
+            <div class="user-meta">
+              <div class="user-name">${me.name}</div>
+              <div class="user-role">${isManager ? 'Manager' : 'Staff'}</div>
+            </div>
+          </div>
+          <button class="btn-logout" id="btnLogout" type="button">Keluar</button>
+        </div>
+      </aside>
+      <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
 
-    <div class="toolbar">
-      <input id="q" placeholder="Cari no. invoice / remark..." value="${state.filters.q}">
-      <select id="filterCustomer">
-        <option value="">Semua Customer</option>
-        ${state.settings.customers.map(c => `<option value="${c.name}" ${state.filters.customer === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
-      </select>
-      <select id="filterStatus">
-        <option value="">Semua Status</option>
-        <option value="Belum Dibayar" ${state.filters.status === 'Belum Dibayar' ? 'selected' : ''}>Belum Dibayar</option>
-        <option value="Sudah Dibayar" ${state.filters.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
-      </select>
-      <div class="spacer"></div>
-      <div class="sub">${state.invoices.length} invoice</div>
+      <main class="main-content">
+        <header class="page-header">
+          <div>
+            <h1>Daftar Invoice</h1>
+            <div class="sub">${state.invoices.length} invoice ditemukan</div>
+          </div>
+          <button class="btn-primary" id="btnNew">+ Invoice Baru</button>
+        </header>
+
+        <div class="toolbar">
+          <input id="q" placeholder="Cari no. invoice / remark..." value="${state.filters.q}">
+          <select id="filterCustomer">
+            <option value="">Semua Customer</option>
+            ${state.settings.customers.map(c => `<option value="${c.name}" ${state.filters.customer === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
+          </select>
+          <select id="filterStatus">
+            <option value="">Semua Status</option>
+            <option value="Belum Dibayar" ${state.filters.status === 'Belum Dibayar' ? 'selected' : ''}>Belum Dibayar</option>
+            <option value="Sudah Dibayar" ${state.filters.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
+          </select>
+          <div class="spacer"></div>
+        </div>
+
+        ${state.invoices.length === 0 ? `<div class="empty-state">Belum ada invoice. Klik "+ Invoice Baru" untuk mulai.</div>` : `
+        <table class="list">
+          <thead><tr><th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th></tr></thead>
+          <tbody>
+            ${state.invoices.map((inv, i) => `
+              <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s">
+                <td>${inv.invoice_no}</td>
+                <td>${inv.invoice_date}</td>
+                <td>${inv.customer_name}</td>
+                <td>${inv.remark || ''}</td>
+                <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
+                <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : 'badge-unpaid'}">${inv.status}</span></td>
+                <td>
+                  <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
+                    ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
+                  </span>
+                  ${inv.approval_status !== 'approved' && me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">Approve</button>` : ''}
+                </td>
+                <td>
+                  <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">Print</button>
+                  <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">Edit</button>
+                  <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">Hapus</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`}
+      </main>
+      <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Buka menu">☰</button>
     </div>
-
-    ${state.invoices.length === 0 ? `<div class="empty-state">Belum ada invoice. Klik "+ Invoice Baru" untuk mulai.</div>` : `
-    <table class="list">
-      <thead><tr><th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th></tr></thead>
-      <tbody>
-        ${state.invoices.map(inv => `
-          <tr>
-            <td>${inv.invoice_no}</td>
-            <td>${inv.invoice_date}</td>
-            <td>${inv.customer_name}</td>
-            <td>${inv.remark || ''}</td>
-            <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
-            <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : 'badge-unpaid'}">${inv.status}</span></td>
-            <td>
-              <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
-                ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
-              </span>
-              ${inv.approval_status !== 'approved' && me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">Approve</button>` : ''}
-            </td>
-            <td>
-              <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">Print</button>
-              <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">Edit</button>
-              <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">Hapus</button>
-            </td>
-          </tr>
-        `).join('')}
-      </tbody>
-    </table>`}
   `;
 
   document.getElementById('btnNew').onclick = () => openForm();
-  document.getElementById('btnExport').onclick = () => window.open('/api/export', '_blank');
-  document.getElementById('btnSettings').onclick = () => openSettingsForm();
-  document.getElementById('btnUsers').onclick = () => openUsersForm();
-  document.getElementById('btnImport').onclick = () => document.getElementById('importFile').click();
+  document.getElementById('navExport').onclick = () => window.open('/api/export', '_blank');
+  document.getElementById('navSettings').onclick = () => openSettingsForm();
+  const navUsers = document.getElementById('navUsers');
+  if (navUsers) navUsers.onclick = () => openUsersForm();
+  document.getElementById('navImport').onclick = () => document.getElementById('importFile').click();
   document.getElementById('importFile').onchange = handleImportFile;
   document.getElementById('btnLogout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); window.location.href = 'login.html'; };
   document.getElementById('q').oninput = debounce(e => { state.filters.q = e.target.value; loadAll(); }, 350);
   document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; loadAll(); };
   document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; loadAll(); };
+
+  const layoutEl = document.getElementById('layout');
+  const toggleSidebar = () => layoutEl.classList.toggle('sidebar-open');
+  document.getElementById('sidebarToggle').onclick = toggleSidebar;
+  document.getElementById('sidebarBackdrop').onclick = () => layoutEl.classList.remove('sidebar-open');
 }
 
 async function handleImportFile(e) {

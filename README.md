@@ -49,18 +49,24 @@ Kode kamu sekarang sudah ada di GitHub, semua lewat browser.
 5. Klik **Deploy**. Tunggu ~1 menit.
 6. Vercel akan kasih URL seperti `https://invoice-app-fuji-seat.vercel.app` — itu link aplikasinya.
 
-## Langkah 4 — Setup akun pertama (lewat browser)
+## Langkah 4 — Setup akun manager pertama (lewat terminal, sekali saja)
 
-1. Buka `https://LINK-VERCEL-KAMU.vercel.app/setup.html`
-2. Isi nama, username, dan password → klik **Buat Akun Manager**.
-   Akun pertama ini otomatis jadi **Manager**. Halaman ini hanya bisa dipakai **sekali** — setelah ada 1 akun saja, akan otomatis ditolak kalau dicoba lagi (supaya aman).
-3. Kamu akan diarahkan ke halaman login → masuk pakai akun yang baru dibuat.
+Karena hanya manager yang boleh mengelola user, akun manager pertama harus dibuat lewat script `create-user.js` (butuh Node.js terpasang di komputer kamu):
 
-## Langkah 5 — Tambah akun staff (lewat aplikasi, bukan terminal)
+1. Buka terminal di folder project ini, lalu jalankan `npm install`.
+2. Salin `.env.example` menjadi `.env`, isi `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, dan `JWT_SECRET` sama persis seperti yang dipakai di Environment Variables Vercel.
+3. Jalankan:
+   ```
+   node create-user.js --username admin --password rahasia123 --role manager --name "Nama Kamu"
+   ```
+4. Buka `https://LINK-VERCEL-KAMU.vercel.app/login.html` → masuk pakai akun yang baru dibuat.
 
-Setelah login sebagai manager, klik tombol **"Kelola User"** di halaman utama →
+## Langkah 5 — Tambah akun staff (lewat aplikasi, oleh manager)
+
+Setelah login sebagai manager, klik menu **"Kelola User"** di sidebar samping →
 isi nama, username, password, pilih role **Staff** → **Tambah User**.
 Bisa tambah/hapus akun staff/manager lain kapan saja dari sini, tanpa perlu install apapun.
+Menu ini hanya muncul dan hanya bisa diakses oleh akun dengan role **Manager**.
 
 **Perbedaan role:**
 - Staff & Manager punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan.
@@ -85,7 +91,6 @@ Semua data lama otomatis berstatus "Disetujui" (dianggap sudah final, tidak perl
 api/index.js              → seluruh backend (Express, jadi 1 serverless function)
 public/                   → frontend (otomatis di-host statis oleh Vercel)
 public/login.html         → halaman login
-public/setup.html         → halaman setup akun pertama (sekali pakai)
 lib/supabaseClient.js     → koneksi ke Supabase
 lib/auth.js               → hashing password & sesi login (JWT + cookie)
 lib/utils.js              → helper (nomor invoice otomatis, format angka)
@@ -95,10 +100,11 @@ vercel.json               → konfigurasi routing Vercel
 .env.example               → contoh isi environment variables (untuk referensi Langkah 3)
 ```
 
-> Catatan: ada juga `create-user.js` dan `import-xls-supabase.js` — dua script CLI
-> opsional kalau suatu saat kamu punya akses Node.js lokal. Tidak wajib dipakai,
-> karena semua fungsinya sudah tersedia lewat halaman web (`setup.html`, tombol
-> "Kelola User", tombol "Import dari Excel").
+> Catatan: `create-user.js` wajib dipakai satu kali di awal untuk membuat akun
+> manager pertama (lihat Langkah 4). Setelah itu tidak wajib dipakai lagi, karena
+> tambah/hapus user selanjutnya sudah bisa lewat menu "Kelola User" di aplikasi
+> (khusus manager). `import-xls-supabase.js` juga opsional — sudah ada tombol
+> "Import dari Excel" di aplikasi untuk keperluan yang sama.
 
 ## Kalau nanti mau ubah info perusahaan (bank, penandatangan, dll)
 
@@ -107,6 +113,6 @@ Login → klik **"Pengaturan Perusahaan"** → edit → simpan. Semua lewat brow
 ## Troubleshooting
 
 - **Error "SUPABASE_URL / SUPABASE_SERVICE_KEY belum diset"** → cek Environment Variables di Vercel (Project Settings → Environment Variables), pastikan sudah benar lalu **redeploy** (Deployments → titik tiga → Redeploy).
-- **`/setup.html` bilang "Setup sudah pernah dilakukan"** → berarti sudah ada akun; minta manager yang ada untuk membuatkan akun baru lewat "Kelola User", atau hapus semua baris di tabel `users` lewat Supabase Table Editor kalau memang mau setup ulang dari nol.
+- **Lupa password manager satu-satunya / tidak ada akun manager sama sekali** → jalankan lagi `node create-user.js --username ... --password ... --role manager --name "..."` dari terminal (lihat Langkah 4). Kalau usernamenya sudah ada, script ini otomatis update password/role-nya.
 - **Data tidak muncul setelah deploy** → pastikan sudah menjalankan `supabase-schema.sql` di Supabase SQL Editor.
 - **Upload ke GitHub gagal/lambat** → GitHub web upload ada batas ukuran; project ini kecil (tanpa `node_modules`) jadi harusnya lancar. Kalau ada error ukuran file, cek tidak sengaja ikut upload folder `node_modules` atau `.git`.

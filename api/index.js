@@ -19,26 +19,6 @@ const cookieOpts = {
   maxAge: 7 * 24 * 60 * 60 * 1000
 };
 
-// ---------- Setup akun pertama (hanya bisa dipakai kalau BELUM ada akun sama sekali) ----------
-app.post('/api/setup', async (req, res) => {
-  try {
-    const supabase = getSupabase();
-    const { data: existingUsers } = await supabase.from('users').select('id').limit(1);
-    if (existingUsers && existingUsers.length > 0) {
-      return res.status(403).json({ error: 'Setup sudah pernah dilakukan. Silakan login, atau minta manager membuatkan akun baru.' });
-    }
-    const { username, password, name } = req.body;
-    if (!username || !password || !name) return res.status(400).json({ error: 'Username, password, dan nama wajib diisi' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
-    const password_hash = await hashPassword(password);
-    const { error } = await supabase.from('users').insert({ username, password_hash, name, role: 'manager' });
-    if (error) throw error;
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ---------- Auth ----------
 app.post('/api/login', async (req, res) => {
   try {
@@ -74,7 +54,7 @@ app.get('/api/me', (req, res) => {
 app.use('/api', requireAuth);
 
 // ---------- Kelola akun staff/manager ----------
-app.get('/api/users', async (req, res) => {
+app.get('/api/users', requireRole('manager'), async (req, res) => {
   try {
     const supabase = getSupabase();
     const { data, error } = await supabase.from('users').select('id, username, name, role, created_at').order('created_at');
@@ -85,7 +65,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-app.post('/api/users', async (req, res) => {
+app.post('/api/users', requireRole('manager'), async (req, res) => {
   try {
     const supabase = getSupabase();
     const { username, password, name, role } = req.body;
@@ -104,7 +84,7 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
-app.delete('/api/users/:id', async (req, res) => {
+app.delete('/api/users/:id', requireRole('manager'), async (req, res) => {
   try {
     const supabase = getSupabase();
     if (String(req.user.sub) === String(req.params.id)) {
