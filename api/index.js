@@ -1,11 +1,14 @@
 const express = require('express');
 const cookieParser = require('cookie-parser');
+const multer = require('multer');
 const XLSX = require('xlsx');
 const { getSupabase } = require('../lib/supabaseClient');
 const { nextInvoiceNumber, numFmt } = require('../lib/utils');
-const { COOKIE_NAME, verifyPassword, signToken, requireAuth, requireRole } = require('../lib/auth');
+const { importXlsBuffer } = require('../lib/importXls');
+const { COOKIE_NAME, hashPassword, verifyPassword, signToken, requireAuth, requireRole } = require('../lib/auth');
 
 const app = express();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 app.use(express.json());
 app.use(cookieParser());
 
@@ -15,6 +18,26 @@ const cookieOpts = {
   secure: process.env.NODE_ENV === 'production',
   maxAge: 7 * 24 * 60 * 60 * 1000
 };
+
+// ---------- Setup akun pertama (hanya bisa dipakai kalau BELUM ada akun sama sekali) ----------
+app.post('/api/setup', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data: existingUsers } = await supabase.from('users').select('id').limit(1);
+    if (existingUsers && existingUsers.length > 0) {
+      return res.status(403).json({ error: 'Setup sudah pernah dilakukan. Silakan login, atau minta manager membuatkan akun baru.' });
+    }
+    const { username, password, name } = req.body;
+    if (!username || !password || !name) return res.status(400).json({ error: 'Username, password, dan nama wajib diisi' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
+    const password_hash = await hashPassword(password);
+    const { error } = await supabase.from('users').insert({ username, password_hash, name, role: 'manager' });
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ---------- Auth ----------
 app.post('/api/login', async (req, res) => {
@@ -49,6 +72,63 @@ app.get('/api/me', (req, res) => {
 
 // Semua route /api/* di bawah ini wajib login
 app.use('/api', requireAuth);
+
+// ---------- Kelola akun staff/manager ----------
+app.get('/api/users', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('users').select('id, username, name, role, created_at').order('created_at');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/users', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { username, password, name, role } = req.body;
+    if (!username || !password || !name || !role) return res.status(400).json({ error: 'Semua field wajib diisi' });
+    if (!['staff', 'manager'].includes(role)) return res.status(400).json({ error: 'Role tidak valid' });
+    if (password.length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter' });
+    const password_hash = await hashPassword(password);
+    const { error } = await supabase.from('users').insert({ username, password_hash, name, role });
+    if (error) {
+      if (error.code === '23505') return res.status(400).json({ error: 'Username sudah dipakai' });
+      throw error;
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/users/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    if (String(req.user.sub) === String(req.params.id)) {
+      return res.status(400).json({ error: 'Tidak bisa menghapus akun sendiri yang sedang login' });
+    }
+    const { error } = await supabase.from('users').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------- Import data lama dari Excel (upload lewat browser) ----------
+app.post('/api/import-xls', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'File tidak ditemukan' });
+    const supabase = getSupabase();
+    const result = await importXlsBuffer(supabase, req.file.buffer);
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ---------- Settings ----------
 app.get('/api/settings', async (req, res) => {

@@ -51,7 +51,10 @@ function render() {
         <div class="sub">PT. Fuji Seat Indonesia — masuk sebagai ${me.name} (${me.role === 'manager' ? 'Manager' : 'Staff'})</div>
       </div>
       <div>
+        <input type="file" id="importFile" accept=".xls,.xlsx" style="display:none">
+        <button class="btn-secondary" id="btnImport">Import dari Excel</button>
         <button class="btn-secondary" id="btnExport">Export Excel</button>
+        <button class="btn-secondary" id="btnUsers">Kelola User</button>
         <button class="btn-secondary" id="btnSettings">Pengaturan Perusahaan</button>
         <button class="btn-primary" id="btnNew">+ Invoice Baru</button>
         <button class="btn-secondary" id="btnLogout">Keluar</button>
@@ -105,10 +108,101 @@ function render() {
   document.getElementById('btnNew').onclick = () => openForm();
   document.getElementById('btnExport').onclick = () => window.open('/api/export', '_blank');
   document.getElementById('btnSettings').onclick = () => openSettingsForm();
+  document.getElementById('btnUsers').onclick = () => openUsersForm();
+  document.getElementById('btnImport').onclick = () => document.getElementById('importFile').click();
+  document.getElementById('importFile').onchange = handleImportFile;
   document.getElementById('btnLogout').onclick = async () => { await fetch('/api/logout', { method: 'POST' }); window.location.href = 'login.html'; };
   document.getElementById('q').oninput = debounce(e => { state.filters.q = e.target.value; loadAll(); }, 350);
   document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; loadAll(); };
   document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; loadAll(); };
+}
+
+async function handleImportFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const res = await fetch('/api/import-xls', { method: 'POST', body: formData });
+    const result = await res.json();
+    if (!res.ok) { alert('Import gagal: ' + (result.error || 'terjadi kesalahan')); return; }
+    alert(`Import selesai.\nBerhasil: ${result.imported}\nDilewati (sudah ada / tidak terbaca): ${result.skipped}${result.errors && result.errors.length ? '\nError: ' + result.errors.length : ''}`);
+    loadAll();
+  } catch (err) {
+    alert('Import gagal: ' + err.message);
+  }
+  e.target.value = '';
+}
+
+async function openUsersForm() {
+  const users = await api('/api/users');
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Kelola User</h2>
+      <table class="items-table" style="margin-bottom:16px">
+        <thead><tr><th>Nama</th><th>Username</th><th>Role</th><th></th></tr></thead>
+        <tbody>
+          ${users.map(u => `
+            <tr>
+              <td>${u.name}</td>
+              <td>${u.username}</td>
+              <td>${u.role === 'manager' ? 'Manager' : 'Staff'}</td>
+              <td><button class="btn-danger btn-icon" data-del="${u.id}" type="button">Hapus</button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <label style="font-size:12px;color:var(--muted);font-weight:600">Tambah User Baru</label>
+      <div class="form-row" style="margin-top:8px">
+        <div class="form-group"><label>Nama Lengkap</label><input id="u_name"></div>
+        <div class="form-group"><label>Username</label><input id="u_username"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Password (min. 6 karakter)</label><input id="u_password" type="password"></div>
+        <div class="form-group"><label>Role</label>
+          <select id="u_role"><option value="staff">Staff</option><option value="manager">Manager</option></select>
+        </div>
+      </div>
+      <div id="usersError" class="error-msg"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btnCloseUsers">Tutup</button>
+        <button class="btn-primary" id="btnAddUser">Tambah User</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.querySelectorAll('[data-del]').forEach(btn => {
+    btn.onclick = async () => {
+      if (!confirm('Hapus user ini?')) return;
+      try {
+        await api(`/api/users/${btn.dataset.del}`, { method: 'DELETE' });
+        overlay.remove();
+        openUsersForm();
+      } catch (e) {
+        alert(e.message);
+      }
+    };
+  });
+
+  overlay.querySelector('#btnCloseUsers').onclick = () => overlay.remove();
+  overlay.querySelector('#btnAddUser').onclick = async () => {
+    try {
+      await api('/api/users', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: overlay.querySelector('#u_name').value,
+          username: overlay.querySelector('#u_username').value,
+          password: overlay.querySelector('#u_password').value,
+          role: overlay.querySelector('#u_role').value
+        })
+      });
+      overlay.remove();
+      openUsersForm();
+    } catch (e) {
+      overlay.querySelector('#usersError').textContent = e.message;
+    }
+  };
 }
 
 window.approveInvoice = async (id) => {

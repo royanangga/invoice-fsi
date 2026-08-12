@@ -1,14 +1,14 @@
 # Aplikasi Invoice — PT. Fuji Seat Indonesia (GitHub + Vercel + Supabase)
 
-Versi ini dirancang untuk di-deploy online: kode di GitHub, hosting di Vercel,
-database di Supabase (Postgres). Bisa diakses dari mana saja lewat 1 URL,
-tidak bergantung ke satu komputer/browser tertentu.
+Versi ini di-deploy sepenuhnya online: kode di GitHub, hosting di Vercel,
+database di Supabase (Postgres). **Semua langkah di bawah bisa dilakukan lewat
+browser saja** — tidak perlu install Node.js, git, atau apapun di komputer kamu.
 
 ## Ringkasan arsitektur
 
 - **Frontend**: HTML/CSS/JS biasa di folder `public/` (otomatis di-host statis oleh Vercel)
 - **Backend**: 1 Express app di `api/index.js`, berjalan sebagai Vercel Serverless Function
-- **Database**: Supabase (Postgres) — dipilih karena Vercel tidak bisa menyimpan file SQLite secara permanen (server-nya "stateless")
+- **Database**: Supabase (Postgres)
 
 ---
 
@@ -16,82 +16,68 @@ tidak bergantung ke satu komputer/browser tertentu.
 
 1. Daftar/login di https://supabase.com → **New Project**.
 2. Setelah project selesai dibuat, buka **SQL Editor** (menu kiri) → **New query**.
-3. Copy-paste seluruh isi file `supabase-schema.sql` (ada di folder ini) → klik **Run**.
-   Ini akan membuat tabel `invoices`, `invoice_items`, `settings`, plus data awal (daftar customer, format nomor, info perusahaan).
+3. Copy-paste seluruh isi file `supabase-schema.sql` (ada di folder ini, buka lewat GitHub setelah Langkah 2, atau buka file-nya langsung dari hasil ekstrak zip) → klik **Run**.
+   Ini membuat tabel `invoices`, `invoice_items`, `settings`, `users`, plus data awal (daftar customer, format nomor, info perusahaan).
 4. Buka **Project Settings → API**. Catat dua nilai ini:
    - **Project URL** (`https://xxxxx.supabase.co`)
-   - **service_role key** (di bagian "Project API keys" — bukan yang `anon public`!)
+   - **service_role key** (bagian "Project API keys" — bukan yang `anon public`!)
 
-   ⚠️ **service_role key ini rahasia**, jangan pernah taruh di kode frontend atau commit ke GitHub. Nanti hanya dipakai sebagai environment variable di Vercel.
-## Langkah 2 — Push kode ke GitHub
+   ⚠️ Kunci ini rahasia — nanti hanya ditaruh sebagai Environment Variable di Vercel, **jangan** ditaruh di kode/GitHub.
 
-Kalau belum pernah pakai Git/GitHub sama sekali:
+## Langkah 2 — Upload kode ke GitHub (lewat browser, tanpa git)
 
-1. Buat akun di https://github.com (kalau belum punya).
-2. Buat repo baru: klik tombol **+** di kanan atas → **New repository** → beri nama misalnya `invoice-app-fuji-seat` → **Create repository** (biarkan kosong, jangan centang "Add README").
-3. Di komputer kamu, buka folder project ini lewat terminal, lalu jalankan:
-   ```
-   git init
-   git add .
-   git commit -m "Initial commit - Aplikasi Invoice Fuji Seat"
-   git branch -M main
-   git remote add origin https://github.com/USERNAME-KAMU/invoice-app-fuji-seat.git
-   git push -u origin main
-   ```
-   Ganti `USERNAME-KAMU` dengan username GitHub kamu. Saat push, browser/terminal akan minta login GitHub — ikuti saja instruksinya.
+1. Ekstrak zip project ini di komputer kamu jadi satu folder biasa.
+2. Buat akun di https://github.com kalau belum punya.
+3. Klik **+** di kanan atas → **New repository** → beri nama misalnya `invoice-app-fuji-seat` → **Create repository** (biarkan kosong).
+4. Di halaman repo yang baru dibuat, cari link kecil **"uploading an existing file"** (atau klik tombol **Add file → Upload files**).
+5. **Buka folder hasil ekstrak di File Explorer/Finder, lalu drag semua isi folder** (bukan folder itu sendiri, tapi isinya: `api`, `public`, `lib`, `package.json`, dst) ke area upload di GitHub. GitHub modern mendukung drag folder lengkap dengan struktur sub-foldernya.
+   - **Jangan upload folder `node_modules`** kalau ada (biasanya sudah tidak ada di zip ini, tapi kalau ada, lewati) — Vercel akan install dependency-nya sendiri otomatis.
+   - Boleh upload folder `.git` atau tidak, tidak masalah — GitHub mengabaikannya lewat upload browser.
+6. Scroll ke bawah, isi commit message singkat (misal "Initial upload"), klik **Commit changes**.
 
-File `.gitignore` sudah disiapkan supaya `node_modules/` dan `.env` (yang berisi kunci rahasia) **tidak ikut ter-upload** ke GitHub.
+Kode kamu sekarang sudah ada di GitHub, semua lewat browser.
 
 ## Langkah 3 — Deploy ke Vercel
 
-1. Daftar/login di https://vercel.com (bisa langsung pakai akun GitHub).
+1. Daftar/login di https://vercel.com (bisa langsung pakai akun GitHub, paling gampang).
 2. Klik **Add New → Project**.
-3. Pilih repo `invoice-app-fuji-seat` yang tadi kamu push → **Import**.
-4. Sebelum klik Deploy, buka bagian **Environment Variables**, tambahkan:
-   - `SUPABASE_URL` → isi dengan Project URL dari Langkah 1
-   - `SUPABASE_SERVICE_KEY` → isi dengan service_role key dari Langkah 1
-   - `JWT_SECRET` → isi string acak yang panjang & rahasia (bebas, contoh: hasil ketik acak 40+ karakter). Ini dipakai untuk mengamankan sesi login.
+3. Pilih repo `invoice-app-fuji-seat` yang tadi kamu upload → **Import**.
+4. Sebelum klik Deploy, buka bagian **Environment Variables**, tambahkan tiga ini:
+   - `SUPABASE_URL` → Project URL dari Langkah 1
+   - `SUPABASE_SERVICE_KEY` → service_role key dari Langkah 1
+   - `JWT_SECRET` → ketik string acak apapun yang panjang (contoh: mash keyboard 40+ karakter) — dipakai untuk mengamankan sesi login
 5. Klik **Deploy**. Tunggu ~1 menit.
-6. Setelah selesai, Vercel kasih URL seperti `https://invoice-app-fuji-seat.vercel.app` — itu link aplikasinya, bisa dibuka dari mana saja.
+6. Vercel akan kasih URL seperti `https://invoice-app-fuji-seat.vercel.app` — itu link aplikasinya.
 
-## Langkah 4 — Buat akun login (staff & manager)
+## Langkah 4 — Setup akun pertama (lewat browser)
 
-Aplikasi ini butuh login. Buat akun dari komputer kamu (sekali per akun):
+1. Buka `https://LINK-VERCEL-KAMU.vercel.app/setup.html`
+2. Isi nama, username, dan password → klik **Buat Akun Manager**.
+   Akun pertama ini otomatis jadi **Manager**. Halaman ini hanya bisa dipakai **sekali** — setelah ada 1 akun saja, akan otomatis ditolak kalau dicoba lagi (supaya aman).
+3. Kamu akan diarahkan ke halaman login → masuk pakai akun yang baru dibuat.
 
-1. Pastikan file `.env` sudah ada (Langkah 5 di bawah menjelaskan cara buatnya).
-2. Jalankan untuk tiap akun yang dibutuhkan, misalnya:
-   ```
-   npm run create-user -- --username nono --password passwordAman123 --role manager --name "Nono Suhena"
-   npm run create-user -- --username budi --password passwordStaff123 --role staff --name "Budi Santoso"
-   ```
-3. Sekarang buka link Vercel-nya → akan diarahkan ke halaman login → masuk pakai username/password yang baru dibuat.
+## Langkah 5 — Tambah akun staff (lewat aplikasi, bukan terminal)
+
+Setelah login sebagai manager, klik tombol **"Kelola User"** di halaman utama →
+isi nama, username, password, pilih role **Staff** → **Tambah User**.
+Bisa tambah/hapus akun staff/manager lain kapan saja dari sini, tanpa perlu install apapun.
 
 **Perbedaan role:**
-- **Staff & Manager** punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan.
-- **Bedanya**: invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager"). Setelah **manager** klik tombol **Approve** di daftar invoice, tanda tangan otomatis muncul di invoice tersebut.
-- Invoice yang dibuat langsung oleh **manager** otomatis berstatus "Disetujui" (tidak perlu approval lagi).
-- Kalau **staff mengedit** invoice yang sudah disetujui, statusnya otomatis kembali ke "Menunggu Approval" (karena isinya berubah, perlu dicek ulang oleh manager).
+- Staff & Manager punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan.
+- Bedanya: invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager"). Setelah **manager** klik tombol **Approve** di daftar invoice, tanda tangan otomatis muncul.
+- Invoice buatan **manager** langsung otomatis "Disetujui".
+- Kalau staff mengedit invoice yang sudah disetujui, statusnya otomatis kembali ke "Menunggu Approval".
 
-## Langkah 5 — Import data lama dari Excel (sekali saja)
+## Langkah 6 — Import data lama dari Excel (lewat aplikasi)
 
-Ini dijalankan dari komputer kamu (bukan di Vercel), supaya bisa akses file Excel-nya:
+1. Login ke aplikasi (staff atau manager, sama saja).
+2. Klik tombol **"Import dari Excel"** di halaman utama.
+3. Pilih file `Invoice_Manual_2026.xls` dari komputer kamu.
+4. Tunggu beberapa detik — muncul notifikasi jumlah invoice yang berhasil/dilewati.
 
-1. Buat file `.env` di folder project ini (boleh copy dari `.env.example`), isi dengan `SUPABASE_URL` dan `SUPABASE_SERVICE_KEY` yang sama seperti di Vercel.
-2. Jalankan:
-   ```
-   npm install
-   npm run import-xls -- "/path/ke/Invoice_Manual_2026.xls"
-   ```
-3. Refresh halaman aplikasi di Vercel — data lama akan langsung muncul (karena sudah tersimpan di Supabase, dipakai bersama oleh semua yang buka link Vercel-nya).
+Semua data lama otomatis berstatus "Disetujui" (dianggap sudah final, tidak perlu di-approve ulang oleh manager).
 
-## Development lokal (opsional)
-
-Untuk coba-coba di komputer sebelum deploy:
-```
-npm install
-npm run dev
-```
-Buka `http://localhost:3210`. Ini tetap terhubung ke Supabase yang sama (lewat `.env`), jadi hati-hati kalau sedang testing — datanya nyata.
+---
 
 ## Struktur file
 
@@ -99,22 +85,28 @@ Buka `http://localhost:3210`. Ini tetap terhubung ke Supabase yang sama (lewat `
 api/index.js              → seluruh backend (Express, jadi 1 serverless function)
 public/                   → frontend (otomatis di-host statis oleh Vercel)
 public/login.html         → halaman login
+public/setup.html         → halaman setup akun pertama (sekali pakai)
 lib/supabaseClient.js     → koneksi ke Supabase
 lib/auth.js               → hashing password & sesi login (JWT + cookie)
 lib/utils.js              → helper (nomor invoice otomatis, format angka)
+lib/importXls.js          → logic parsing file Excel lama
 supabase-schema.sql       → skema database, jalankan sekali di Supabase SQL Editor
-import-xls-supabase.js    → script import data lama dari Excel
-create-user.js            → script membuat akun staff/manager
 vercel.json               → konfigurasi routing Vercel
-.env.example              → contoh isi file .env
+.env.example               → contoh isi environment variables (untuk referensi Langkah 3)
 ```
+
+> Catatan: ada juga `create-user.js` dan `import-xls-supabase.js` — dua script CLI
+> opsional kalau suatu saat kamu punya akses Node.js lokal. Tidak wajib dipakai,
+> karena semua fungsinya sudah tersedia lewat halaman web (`setup.html`, tombol
+> "Kelola User", tombol "Import dari Excel").
 
 ## Kalau nanti mau ubah info perusahaan (bank, penandatangan, dll)
 
-Tidak perlu ubah kode — tinggal buka aplikasinya, klik tombol **"Pengaturan Perusahaan"**, edit, simpan. Datanya tersimpan di tabel `settings` di Supabase.
+Login → klik **"Pengaturan Perusahaan"** → edit → simpan. Semua lewat browser.
 
 ## Troubleshooting
 
-- **Error "SUPABASE_URL / SUPABASE_SERVICE_KEY belum diset"** → cek environment variables di Vercel (Project Settings → Environment Variables), pastikan sudah benar lalu **redeploy**.
+- **Error "SUPABASE_URL / SUPABASE_SERVICE_KEY belum diset"** → cek Environment Variables di Vercel (Project Settings → Environment Variables), pastikan sudah benar lalu **redeploy** (Deployments → titik tiga → Redeploy).
+- **`/setup.html` bilang "Setup sudah pernah dilakukan"** → berarti sudah ada akun; minta manager yang ada untuk membuatkan akun baru lewat "Kelola User", atau hapus semua baris di tabel `users` lewat Supabase Table Editor kalau memang mau setup ulang dari nol.
 - **Data tidak muncul setelah deploy** → pastikan sudah menjalankan `supabase-schema.sql` di Supabase SQL Editor.
-- **Nomor invoice bentrok saat dipakai 2 orang bersamaan** → sangat jarang terjadi, tapi kalau terjadi aplikasi akan menolak simpan dan minta nomor lain (validasi nomor dobel sudah aktif).
+- **Upload ke GitHub gagal/lambat** → GitHub web upload ada batas ukuran; project ini kecil (tanpa `node_modules`) jadi harusnya lancar. Kalau ada error ukuran file, cek tidak sengaja ikut upload folder `node_modules` atau `.git`.
