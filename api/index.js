@@ -331,11 +331,11 @@ app.get('/api/invoices/:id/print', async (req, res) => {
       @page { size: A4; margin: 18mm 15mm; }
       * { box-sizing: border-box; }
       body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #000; margin:0; padding: 0; }
-      .co-header { display:flex; align-items:center; gap:16px; }
-      .co-logo { width:74px; height:74px; object-fit:contain; flex-shrink:0; }
+      .co-header { display:flex; align-items:center; gap:12px; }
+      .co-logo { width:64px; height:64px; object-fit:contain; flex-shrink:0; }
       .co-info { flex:1; }
-      .co-name { font-size: 20pt; font-weight: bold; text-align:center; margin:0; }
-      .co-line { font-size: 12pt; text-align:center; }
+      .co-name { font-size: 20pt; font-weight: bold; text-align:center; margin:0 0 4px; }
+      .co-line { font-size: 12pt; text-align:center; margin:2px 0; }
       .spacer-sm { height: 14px; }
       .spacer-md { height: 22px; }
       .to-label { font-weight:bold; }
