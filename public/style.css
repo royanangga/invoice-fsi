@@ -38,7 +38,7 @@ body { margin:0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-ser
 }
 .icon-lg { width: 20px; height: 20px; vertical-align: -4px; }
 .icon-sm { width: 13px; height: 13px; vertical-align: -2px; }
-button, .nav-item, .btn-logout { display:inline-flex; align-items:center; justify-content:center; gap:6px; }
+button, .btn-logout { display:inline-flex; align-items:center; justify-content:center; gap:6px; }
 .header-actions button, .modal-actions button { gap:7px; }
 h1 { display:flex; align-items:center; gap:9px; }
 
@@ -116,21 +116,22 @@ button .spinner { border-color: rgba(255,255,255,0.35); border-top-color:#fff; }
 .brand-title { font-size:14px; font-weight:700; line-height:1.3; }
 .brand-sub { font-size:11px; color:rgba(255,255,255,0.55); }
 
-.sidebar-nav { display:flex; flex-direction:column; gap:2px; padding:14px 10px; flex:1; overflow-y:auto; }
+.sidebar-nav { display:flex; flex-direction:column; gap:2px; padding:14px 0; flex:1; overflow-y:auto; }
 .nav-item {
-  display:flex; align-items:center; gap:10px;
+  display:flex; align-items:center; justify-content:flex-start; gap:10px;
+  width:100%;
   background:transparent; color:rgba(255,255,255,0.75);
-  border:none; border-radius:8px; padding:11px 12px;
+  border:none; border-radius:0; padding:11px 22px;
   font-size:13px; font-weight:600; text-align:left; cursor:pointer;
   position:relative;
   transition: background .18s ease, color .18s ease, transform .18s ease, padding-left .18s ease;
   animation: slideInLeft .35s ease both;
 }
 .nav-item .nav-icon { width:18px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
-.nav-item:hover { background: rgba(255,255,255,0.08); color:#fff; padding-left:16px; }
+.nav-item:hover { background: rgba(255,255,255,0.08); color:#fff; padding-left:26px; }
 .nav-item.active { background: rgba(14,124,123,0.25); color:#fff; }
 .nav-item.active::before {
-  content:''; position:absolute; left:-10px; top:50%; transform:translateY(-50%);
+  content:''; position:absolute; left:0; top:50%; transform:translateY(-50%);
   width:4px; height:60%; border-radius:0 4px 4px 0; background: var(--teal-light);
 }
 
