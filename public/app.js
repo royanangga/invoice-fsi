@@ -1,7 +1,7 @@
 const app = document.getElementById('app');
 let state = {
   invoices: [], settings: { customers: [] }, filters: { q: '', status: '', customer: '' },
-  me: null, view: 'invoices', users: []
+  me: null, view: 'invoices', users: [], selectedIds: new Set()
 };
 
 /* ---------- Icon set (inline SVG, konsisten dgn palet UI) ---------- */
@@ -176,6 +176,7 @@ function renderShell() {
 function switchView(view) {
   if (view === 'users' && state.me.role !== 'manager') return;
   state.view = view;
+  state.selectedIds.clear();
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
@@ -207,6 +208,8 @@ async function renderMain() {
 /* ---------- Invoice tab ---------- */
 function invoicesViewHtml() {
   const t = VIEW_TITLES.invoices;
+  const isManager = state.me.role === 'manager';
+  const allChecked = state.invoices.length > 0 && state.invoices.every(inv => state.selectedIds.has(inv.id));
   return `
     <header class="page-header">
       <div>
@@ -235,12 +238,27 @@ function invoicesViewHtml() {
       <div class="spacer"></div>
     </div>
 
+    <div class="bulk-bar" id="bulkBar">
+      <span class="bulk-count" id="bulkCount">0 dipilih</span>
+      <div class="bulk-actions">
+        <button class="btn-secondary btn-icon" id="bulkPaid" type="button">${icon('check', 'icon-sm')} Tandai Lunas</button>
+        <button class="btn-secondary btn-icon" id="bulkUnpaid" type="button">${icon('x', 'icon-sm')} Tandai Belum Dibayar</button>
+        ${isManager ? `<button class="btn-primary btn-icon" id="bulkApprove" type="button">${icon('check', 'icon-sm')} Approve</button>` : ''}
+        <button class="btn-danger btn-icon" id="bulkDelete" type="button">${icon('trash', 'icon-sm')} Hapus</button>
+        <button class="btn-secondary btn-icon" id="bulkClear" type="button">${icon('x', 'icon-sm')} Batalkan</button>
+      </div>
+    </div>
+
     ${state.invoices.length === 0 ? `<div class="empty-state">Belum ada invoice. Klik "+ Invoice Baru" untuk mulai.</div>` : `
     <table class="list">
-      <thead><tr><th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th></tr></thead>
+      <thead><tr>
+        <th class="th-check"><input type="checkbox" id="checkAll" ${allChecked ? 'checked' : ''}></th>
+        <th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th>
+      </tr></thead>
       <tbody>
         ${state.invoices.map((inv, i) => `
-          <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s">
+          <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s" class="${state.selectedIds.has(inv.id) ? 'row-selected' : ''}">
+            <td class="td-check"><input type="checkbox" class="row-check" data-id="${inv.id}" ${state.selectedIds.has(inv.id) ? 'checked' : ''}></td>
             <td>${inv.invoice_no}</td>
             <td>${inv.invoice_date}</td>
             <td>${inv.customer_name}</td>
@@ -273,10 +291,141 @@ function wireInvoicesView() {
   document.getElementById('q').oninput = debounce(e => { state.filters.q = e.target.value; refreshInvoices(); }, 350);
   document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; refreshInvoices(); };
   document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; refreshInvoices(); };
+  wireBulkActions();
+}
+
+/* ---------- Bulk actions (invoice list) ---------- */
+function wireBulkActions() {
+  const checkAll = document.getElementById('checkAll');
+  const rowChecks = () => Array.from(document.querySelectorAll('.row-check'));
+
+  updateBulkBar();
+
+  if (checkAll) {
+    checkAll.onchange = () => {
+      state.invoices.forEach(inv => {
+        if (checkAll.checked) state.selectedIds.add(inv.id);
+        else state.selectedIds.delete(inv.id);
+      });
+      rowChecks().forEach(cb => {
+        cb.checked = checkAll.checked;
+        cb.closest('tr').classList.toggle('row-selected', checkAll.checked);
+      });
+      updateBulkBar();
+    };
+  }
+
+  rowChecks().forEach(cb => {
+    cb.onchange = () => {
+      const id = Number(cb.dataset.id);
+      if (cb.checked) state.selectedIds.add(id);
+      else state.selectedIds.delete(id);
+      cb.closest('tr').classList.toggle('row-selected', cb.checked);
+      if (checkAll) checkAll.checked = state.invoices.length > 0 && state.invoices.every(inv => state.selectedIds.has(inv.id));
+      updateBulkBar();
+    };
+  });
+
+  const bulkClear = document.getElementById('bulkClear');
+  if (bulkClear) bulkClear.onclick = () => {
+    state.selectedIds.clear();
+    renderMain();
+  };
+
+  const bulkDelete = document.getElementById('bulkDelete');
+  if (bulkDelete) bulkDelete.onclick = async () => {
+    const ids = Array.from(state.selectedIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Hapus ${ids.length} invoice terpilih? Tindakan ini tidak bisa dibatalkan.`)) return;
+    const original = bulkDelete.innerHTML;
+    setBulkButtonsDisabled(true);
+    bulkDelete.innerHTML = spinner() + ' Menghapus...';
+    try {
+      await Promise.all(ids.map(id => api(`/api/invoices/${id}`, { method: 'DELETE' })));
+      state.selectedIds.clear();
+      await refreshInvoices();
+    } catch (e) {
+      alert(e.message);
+      setBulkButtonsDisabled(false);
+      bulkDelete.innerHTML = original;
+    }
+  };
+
+  const bulkApprove = document.getElementById('bulkApprove');
+  if (bulkApprove) bulkApprove.onclick = async () => {
+    const ids = Array.from(state.selectedIds).filter(id => {
+      const inv = state.invoices.find(i => i.id === id);
+      return inv && inv.approval_status !== 'approved';
+    });
+    if (ids.length === 0) { alert('Semua invoice terpilih sudah disetujui.'); return; }
+    const original = bulkApprove.innerHTML;
+    setBulkButtonsDisabled(true);
+    bulkApprove.innerHTML = spinner() + ' Menyetujui...';
+    try {
+      await Promise.all(ids.map(id => api(`/api/invoices/${id}/approve`, { method: 'POST' })));
+      state.selectedIds.clear();
+      await refreshInvoices();
+    } catch (e) {
+      alert(e.message);
+      setBulkButtonsDisabled(false);
+      bulkApprove.innerHTML = original;
+    }
+  };
+
+  const bulkPaid = document.getElementById('bulkPaid');
+  if (bulkPaid) bulkPaid.onclick = () => bulkSetStatus('Sudah Dibayar', bulkPaid);
+
+  const bulkUnpaid = document.getElementById('bulkUnpaid');
+  if (bulkUnpaid) bulkUnpaid.onclick = () => bulkSetStatus('Belum Dibayar', bulkUnpaid);
+}
+
+async function bulkSetStatus(status, btn) {
+  const ids = Array.from(state.selectedIds);
+  if (ids.length === 0) return;
+  const original = btn.innerHTML;
+  setBulkButtonsDisabled(true);
+  btn.innerHTML = spinner() + ' Menyimpan...';
+  try {
+    await Promise.all(ids.map(id => {
+      const inv = state.invoices.find(i => i.id === id);
+      if (!inv) return Promise.resolve();
+      const payload = {
+        invoice_no: inv.invoice_no, invoice_date: inv.invoice_date, due_date: inv.due_date || null,
+        customer_name: inv.customer_name, customer_address: inv.customer_address || '', attn: inv.attn || '',
+        currency: inv.currency, batch: inv.batch || '', remark: inv.remark || '', status,
+        exchange_rate: inv.exchange_rate || null,
+        items: (inv.items || []).map(it => ({ item_name: it.item_name, qty: it.qty, amount: it.amount }))
+      };
+      return api(`/api/invoices/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    }));
+    state.selectedIds.clear();
+    await refreshInvoices();
+  } catch (e) {
+    alert(e.message);
+    setBulkButtonsDisabled(false);
+    btn.innerHTML = original;
+  }
+}
+
+function setBulkButtonsDisabled(disabled) {
+  ['bulkPaid', 'bulkUnpaid', 'bulkApprove', 'bulkDelete', 'bulkClear'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = disabled;
+  });
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById('bulkBar');
+  const countEl = document.getElementById('bulkCount');
+  if (!bar || !countEl) return;
+  const n = state.selectedIds.size;
+  countEl.textContent = `${n} dipilih`;
+  bar.classList.toggle('is-visible', n > 0);
 }
 
 async function refreshInvoices() {
   state.invoices = await api('/api/invoices' + buildQuery());
+  state.selectedIds.clear();
   if (state.view === 'invoices') renderMain();
 }
 
