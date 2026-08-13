@@ -19,7 +19,8 @@ const ICONS = {
   print: `<svg viewBox="0 0 24 24" class="icon"><path d="M6.5 8.7V3.8h11v4.9"/><rect x="4" y="8.7" width="16" height="6.6" rx="1.2"/><path d="M7 15.3V20h10v-4.7"/></svg>`,
   edit: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 17.25V20h2.75L17.8 8.94l-2.75-2.75L4 17.25z"/><path d="M14.5 4.94l2.75 2.75"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 6.5h16M9 6.5V4.3a1 1 0 011-1h4a1 1 0 011 1v2.2M6.5 6.5l.9 12.3a1.4 1.4 0 001.4 1.3h6.4a1.4 1.4 0 001.4-1.3l.9-12.3"/><path d="M10 10.5v6M14 10.5v6"/></svg>`,
-  search: `<svg viewBox="0 0 24 24" class="icon"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-4.3-4.3"/></svg>`
+  search: `<svg viewBox="0 0 24 24" class="icon"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-4.3-4.3"/></svg>`,
+  chevron: `<svg viewBox="0 0 24 24" class="icon"><path d="M7 10l5 5 5-5"/></svg>`
 };
 function icon(name, extraClass) {
   const svg = ICONS[name] || '';
@@ -133,14 +134,21 @@ function renderShell() {
           <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Tutup menu">${icon('x')}</button>
         </div>
         <nav class="sidebar-nav">
-          <div class="nav-group" style="animation-delay:.02s">
-            <div class="nav-group-label"><span class="nav-icon">${icon('invoice')}</span> Invoice</div>
-            <button class="nav-item nav-subitem ${state.view === 'invoice_new' ? 'active' : ''}" data-view="invoice_new" type="button">
-              ${icon('plus', 'icon-sm')} Tambah Invoice Baru
+          <div class="nav-group ${(state.view === 'invoices' || state.view === 'invoice_new') ? 'nav-group-open' : ''}" style="animation-delay:.02s">
+            <button class="nav-item nav-parent" id="navInvoiceToggle" type="button">
+              <span class="nav-icon">${icon('invoice')}</span> Invoice
+              <span class="nav-caret">${icon('chevron', 'icon-sm')}</span>
             </button>
-            <button class="nav-item nav-subitem ${state.view === 'invoices' ? 'active' : ''}" data-view="invoices" type="button">
-              ${icon('invoice', 'icon-sm')} Daftar Invoice
-            </button>
+            <div class="nav-submenu" id="navInvoiceSubmenu">
+              <div class="nav-submenu-inner">
+                <button class="nav-item nav-subitem ${state.view === 'invoice_new' ? 'active' : ''}" data-view="invoice_new" type="button">
+                  ${icon('plus', 'icon-sm')} Tambah Invoice Baru
+                </button>
+                <button class="nav-item nav-subitem ${state.view === 'invoices' ? 'active' : ''}" data-view="invoices" type="button">
+                  ${icon('invoice', 'icon-sm')} Daftar Invoice
+                </button>
+              </div>
+            </div>
           </div>
           ${isManager ? `<button class="nav-item ${state.view === 'users' ? 'active' : ''}" data-view="users" type="button" style="animation-delay:.06s">
             <span class="nav-icon">${icon('users')}</span> Kelola User
@@ -171,6 +179,9 @@ function renderShell() {
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.onclick = () => switchView(btn.dataset.view);
   });
+  document.getElementById('navInvoiceToggle').onclick = () => {
+    document.querySelector('.nav-group').classList.toggle('nav-group-open');
+  };
   document.getElementById('btnLogout').onclick = async () => {
     const btn = document.getElementById('btnLogout');
     btn.disabled = true;
@@ -194,6 +205,10 @@ function switchView(view) {
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.view === view);
   });
+  if (view === 'invoices' || view === 'invoice_new') {
+    const group = document.querySelector('.nav-group');
+    if (group) group.classList.add('nav-group-open');
+  }
   document.getElementById('layout').classList.remove('sidebar-open');
   renderMain();
 }
