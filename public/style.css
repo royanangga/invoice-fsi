@@ -119,6 +119,14 @@ button .spinner { border-color: rgba(255,255,255,0.35); border-top-color:#fff; }
 .sidebar-close:hover { background: rgba(255,255,255,0.16); }
 
 .sidebar-nav { display:flex; flex-direction:column; gap:2px; padding:14px 0; flex:1; overflow-y:auto; }
+.nav-group { display:flex; flex-direction:column; gap:2px; animation: slideInLeft .35s ease both; }
+.nav-group-label {
+  display:flex; align-items:center; gap:10px; padding:11px 22px 6px;
+  font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.6px;
+  color:rgba(255,255,255,0.4);
+}
+.nav-group-label .nav-icon { width:18px; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; opacity:.7; }
+.nav-subitem { padding-left:38px; font-size:12.5px; animation:none; }
 .nav-item {
   display:flex; align-items:center; justify-content:flex-start; gap:10px;
   width:100%;

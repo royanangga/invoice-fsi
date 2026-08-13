@@ -133,9 +133,15 @@ function renderShell() {
           <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Tutup menu">${icon('x')}</button>
         </div>
         <nav class="sidebar-nav">
-          <button class="nav-item ${state.view === 'invoices' ? 'active' : ''}" data-view="invoices" type="button" style="animation-delay:.02s">
-            <span class="nav-icon">${icon('invoice')}</span> Invoice
-          </button>
+          <div class="nav-group" style="animation-delay:.02s">
+            <div class="nav-group-label"><span class="nav-icon">${icon('invoice')}</span> Invoice</div>
+            <button class="nav-item nav-subitem ${state.view === 'invoice_new' ? 'active' : ''}" data-view="invoice_new" type="button">
+              ${icon('plus', 'icon-sm')} Tambah Invoice Baru
+            </button>
+            <button class="nav-item nav-subitem ${state.view === 'invoices' ? 'active' : ''}" data-view="invoices" type="button">
+              ${icon('invoice', 'icon-sm')} Daftar Invoice
+            </button>
+          </div>
           ${isManager ? `<button class="nav-item ${state.view === 'users' ? 'active' : ''}" data-view="users" type="button" style="animation-delay:.06s">
             <span class="nav-icon">${icon('users')}</span> Kelola User
           </button>` : ''}
@@ -205,10 +211,12 @@ async function renderMain() {
     }
   }
   main.innerHTML = state.view === 'invoices' ? invoicesViewHtml()
+    : state.view === 'invoice_new' ? invoiceNewPageHtml()
     : state.view === 'users' ? usersViewHtml()
     : settingsViewHtml();
 
   if (state.view === 'invoices') wireInvoicesView();
+  else if (state.view === 'invoice_new') wireInvoiceNewPage();
   else if (state.view === 'users') wireUsersView();
   else wireSettingsView();
 }
@@ -292,7 +300,7 @@ function invoicesViewHtml() {
 }
 
 function wireInvoicesView() {
-  document.getElementById('btnNew').onclick = () => openForm();
+  document.getElementById('btnNew').onclick = () => switchView('invoice_new');
   document.getElementById('btnExport').onclick = () => window.open('/api/export', '_blank');
   document.getElementById('btnImport').onclick = () => document.getElementById('importFile').click();
   document.getElementById('importFile').onchange = handleImportFile;
@@ -813,17 +821,11 @@ function wireSettingsView() {
 }
 
 /* ---------- Invoice form (tetap modal, form-nya panjang & kontekstual per baris) ---------- */
-async function openForm(existing) {
+function invoiceFormFieldsHtml(existing) {
   const isEdit = !!existing;
   const customers = state.settings.customers;
-  let items = existing ? existing.items.map(it => ({ ...it })) : [{ item_name: '', qty: 1, amount: 0 }];
-  let invoiceNo = existing ? existing.invoice_no : '';
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay';
-  overlay.innerHTML = `
-    <div class="modal">
-      <h2>${isEdit ? 'Edit Invoice' : 'Invoice Baru'}</h2>
+  const invoiceNo = existing ? existing.invoice_no : '';
+  return `
       <div class="form-row">
         <div class="form-group">
           <label>Customer</label>
@@ -896,17 +898,22 @@ async function openForm(existing) {
         <button class="btn-secondary" id="btnCancel">${icon('x', 'icon-sm')} Batal</button>
         <button class="btn-primary" id="btnSave">${icon('check', 'icon-sm')} Simpan</button>
       </div>
-    </div>
   `;
-  document.body.appendChild(overlay);
+}
 
-  const customerSel = overlay.querySelector('#f_customer');
-  const currencySel = overlay.querySelector('#f_currency');
-  const attnInput = overlay.querySelector('#f_attn');
-  const exRateInput = overlay.querySelector('#f_exrate');
+// Menghubungkan semua interaksi form invoice (Item, currency, exchange rate, simpan, batal).
+// `root` bisa berupa modal overlay (Edit) ataupun elemen halaman penuh (Tambah Invoice Baru).
+function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
+  const isEdit = !!existing;
+  let items = existing ? existing.items.map(it => ({ ...it })) : [{ item_name: '', qty: 1, amount: 0 }];
+
+  const customerSel = root.querySelector('#f_customer');
+  const currencySel = root.querySelector('#f_currency');
+  const attnInput = root.querySelector('#f_attn');
+  const exRateInput = root.querySelector('#f_exrate');
 
   function renderItems() {
-    const body = overlay.querySelector('#itemsBody');
+    const body = root.querySelector('#itemsBody');
     body.innerHTML = items.map((it, i) => `
       <tr>
         <td><input value="${it.item_name}" data-i="${i}" data-field="item_name"></td>
@@ -942,13 +949,13 @@ async function openForm(existing) {
   // diisi dalam IDR, Exchange Rate wajib diisi, dan amount valuta dihitung otomatis.
   function updateCurrencyUI() {
     const isIDR = currencySel.value === 'IDR';
-    overlay.querySelector('#exRateHint').textContent = isIDR ? '(opsional)' : '(wajib diisi untuk mata uang selain IDR)';
-    overlay.querySelector('#valutaHint').style.display = isIDR ? 'none' : 'block';
+    root.querySelector('#exRateHint').textContent = isIDR ? '(opsional)' : '(wajib diisi untuk mata uang selain IDR)';
+    root.querySelector('#valutaHint').style.display = isIDR ? 'none' : 'block';
     updateTotalsPreview();
   }
 
   function updateTotalsPreview() {
-    const preview = overlay.querySelector('#totalsPreview');
+    const preview = root.querySelector('#totalsPreview');
     if (!preview) return;
     const totalIdr = items.reduce((s, it) => s + ((Number(it.amount) || 0) * (Number(it.qty) || 1)), 0);
     const isIDR = currencySel.value === 'IDR';
@@ -966,7 +973,7 @@ async function openForm(existing) {
 
   renderItems();
 
-  overlay.querySelector('#btnAddItem').onclick = () => { items.push({ item_name: '', qty: 1, amount: 0 }); renderItems(); };
+  root.querySelector('#btnAddItem').onclick = () => { items.push({ item_name: '', qty: 1, amount: 0 }); renderItems(); };
 
   customerSel.onchange = () => {
     const opt = customerSel.selectedOptions[0];
@@ -978,43 +985,43 @@ async function openForm(existing) {
   exRateInput.oninput = updateTotalsPreview;
   updateCurrencyUI();
 
-  const dateInput = overlay.querySelector('#f_date');
+  const dateInput = root.querySelector('#f_date');
   if (!isEdit) {
     const fillNextNumber = async () => {
       const r = await api(`/api/next-number?date=${dateInput.value}`);
-      overlay.querySelector('#f_no').value = r.invoice_no;
+      root.querySelector('#f_no').value = r.invoice_no;
     };
     dateInput.onchange = fillNextNumber;
     fillNextNumber();
     customerSel.dispatchEvent(new Event('change'));
   }
 
-  overlay.querySelector('#btnCancel').onclick = () => overlay.remove();
+  root.querySelector('#btnCancel').onclick = () => onCancel();
 
-  const saveBtn = overlay.querySelector('#btnSave');
+  const saveBtn = root.querySelector('#btnSave');
   const saveBtnOriginal = saveBtn.innerHTML;
   saveBtn.onclick = async () => {
     const opt = customerSel.selectedOptions[0];
     const payload = {
-      invoice_no: overlay.querySelector('#f_no').value.trim(),
+      invoice_no: root.querySelector('#f_no').value.trim(),
       invoice_date: dateInput.value,
-      due_date: overlay.querySelector('#f_due').value || null,
+      due_date: root.querySelector('#f_due').value || null,
       customer_name: customerSel.value,
       customer_address: opt.dataset.address || '',
-      attn: overlay.querySelector('#f_attn').value,
+      attn: root.querySelector('#f_attn').value,
       currency: currencySel.value,
-      batch: overlay.querySelector('#f_batch').value,
-      remark: overlay.querySelector('#f_remark').value,
-      status: overlay.querySelector('#f_status').value,
-      exchange_rate: overlay.querySelector('#f_exrate').value ? Number(overlay.querySelector('#f_exrate').value) : null,
+      batch: root.querySelector('#f_batch').value,
+      remark: root.querySelector('#f_remark').value,
+      status: root.querySelector('#f_status').value,
+      exchange_rate: root.querySelector('#f_exrate').value ? Number(root.querySelector('#f_exrate').value) : null,
       items: items.filter(it => it.item_name.trim() !== '')
     };
     if (!payload.invoice_no || !payload.invoice_date || payload.items.length === 0) {
-      overlay.querySelector('#formError').textContent = 'No. invoice, tanggal, dan minimal 1 item wajib diisi.';
+      root.querySelector('#formError').textContent = 'No. invoice, tanggal, dan minimal 1 item wajib diisi.';
       return;
     }
     if (payload.currency !== 'IDR' && !payload.exchange_rate) {
-      overlay.querySelector('#formError').textContent = 'Exchange Rate wajib diisi untuk invoice dengan mata uang selain IDR, supaya amount valuta bisa dihitung otomatis.';
+      root.querySelector('#formError').textContent = 'Exchange Rate wajib diisi untuk invoice dengan mata uang selain IDR, supaya amount valuta bisa dihitung otomatis.';
       return;
     }
     saveBtn.disabled = true; saveBtn.innerHTML = spinner() + ' Menyimpan...';
@@ -1024,13 +1031,52 @@ async function openForm(existing) {
       } else {
         await api('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       }
-      overlay.remove();
-      refreshInvoices();
+      onSaved();
     } catch (e) {
-      overlay.querySelector('#formError').textContent = e.message;
+      root.querySelector('#formError').textContent = e.message;
       saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOriginal;
     }
   };
+}
+
+// Modal Edit Invoice (dipakai dari tabel Daftar Invoice)
+function openForm(existing) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Edit Invoice</h2>
+      ${invoiceFormFieldsHtml(existing)}
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  wireInvoiceForm(overlay, existing, {
+    onCancel: () => overlay.remove(),
+    onSaved: () => { overlay.remove(); refreshInvoices(); }
+  });
+}
+
+// Halaman penuh Tambah Invoice Baru (sub-menu sidebar terpisah dari Daftar Invoice)
+function invoiceNewPageHtml() {
+  return `
+    <header class="page-header">
+      <div>
+        <h1>${icon('plus', 'icon-lg')} Tambah Invoice Baru</h1>
+        <div class="sub">Isi detail invoice di bawah ini</div>
+      </div>
+    </header>
+    <div class="panel" id="invoiceNewPanel">
+      ${invoiceFormFieldsHtml(null)}
+    </div>
+  `;
+}
+
+function wireInvoiceNewPage() {
+  const root = document.getElementById('invoiceNewPanel');
+  wireInvoiceForm(root, null, {
+    onCancel: () => switchView('invoices'),
+    onSaved: async () => { await refreshInvoices(); switchView('invoices'); }
+  });
 }
 
 /* ---------- Animasi klik untuk semua action button (pop + ripple) ---------- */
