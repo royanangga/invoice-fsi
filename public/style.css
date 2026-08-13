@@ -172,6 +172,9 @@ button .spinner { border-color: rgba(255,255,255,0.35); border-top-color:#fff; }
   padding: 26px 32px; max-width: 1200px;
   animation: fadeInUp .35s ease both;
 }
+/* Saat ada panel preview di kanan (Daftar Invoice / Tambah Invoice Baru), lebar dibuka penuh
+   supaya panel preview tidak terjepit kecil di sisa ruang 1200px. */
+.main-content:has(.content-split) { max-width: none; }
 
 .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 22px; flex-wrap:wrap; gap:12px; animation: fadeInUp .3s ease both; }
 .page-header h1 { font-size: 21px; color: var(--navy); margin:0 0 3px; }
@@ -247,10 +250,10 @@ table.list tr.row-selected td { background:rgba(14,124,123,0.07); }
 
 /* ---------- Panel Preview (kanan) — Daftar Invoice & Tambah Invoice Baru ---------- */
 .content-split { display:flex; align-items:flex-start; gap:20px; }
-.content-main { flex:1; min-width:0; }
+.content-main { flex:1 1 460px; min-width:420px; }
 .table-wrap { overflow-x:auto; border-radius:8px; }
 .preview-panel {
-  display:none; flex-direction:column; flex-shrink:0; width:440px;
+  display:none; flex-direction:column; flex-shrink:0; width:clamp(460px, 42vw, 780px);
   background:var(--card); border-radius:10px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
   position:sticky; top:26px; height:calc(100vh - 52px); overflow:hidden;
   animation: slideInLeft .25s ease both;
