@@ -211,13 +211,21 @@ app.post('/api/invoices', async (req, res) => {
   try {
     const supabase = getSupabase();
     const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, status, exchange_rate } = req.body;
-    if (!invoice_no || !invoice_date || !customer_name) {
+    // Invoice berstatus 'Draft' boleh disimpan belum lengkap (belum ada no./tanggal/
+    // customer/item). Validasi ketat hanya berlaku untuk invoice resmi.
+    const isDraft = status === 'Draft';
+    if (!isDraft && (!invoice_no || !invoice_date || !customer_name)) {
       return res.status(400).json({ error: 'invoice_no, invoice_date, customer_name wajib diisi' });
     }
     const isManager = req.user.role === 'manager';
     const nowIso = new Date().toISOString();
+    // invoice_no kosong disimpan sebagai NULL (bukan string kosong) supaya beberapa
+    // draft tanpa nomor tidak bentrok dengan constraint unique di kolom invoice_no.
     const { data: inv, error: invErr } = await supabase.from('invoices').insert({
-      invoice_no, invoice_date, due_date: due_date || null, customer_name,
+      invoice_no: (invoice_no || '').trim() || null,
+      invoice_date: invoice_date || null,
+      due_date: due_date || null,
+      customer_name: customer_name || null,
       customer_address: customer_address || '', attn: attn || '', currency: currency || 'IDR',
       batch: batch || '', remark: remark || '', status: status || 'Belum Dibayar',
       exchange_rate: exchange_rate || null,
@@ -246,10 +254,17 @@ app.put('/api/invoices/:id', async (req, res) => {
   try {
     const supabase = getSupabase();
     const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, status, exchange_rate } = req.body;
+    const isDraft = status === 'Draft';
+    if (!isDraft && (!invoice_no || !invoice_date || !customer_name)) {
+      return res.status(400).json({ error: 'invoice_no, invoice_date, customer_name wajib diisi' });
+    }
     const isManager = req.user.role === 'manager';
     const nowIso = new Date().toISOString();
     const { error: updErr } = await supabase.from('invoices').update({
-      invoice_no, invoice_date, due_date: due_date || null, customer_name,
+      invoice_no: (invoice_no || '').trim() || null,
+      invoice_date: invoice_date || null,
+      due_date: due_date || null,
+      customer_name: customer_name || null,
       customer_address: customer_address || '', attn: attn || '', currency: currency || 'IDR',
       batch: batch || '', remark: remark || '', status: status || 'Belum Dibayar',
       exchange_rate: exchange_rate || null,
@@ -315,6 +330,9 @@ async function getCompanySettings() {
 function buildInvoiceHtml(inv, co) {
     const items = inv.items || [];
     const total = items.reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
+    const isDraft = inv.status === 'Draft';
+    const invoiceNoDisplay = inv.invoice_no || '(Belum diisi)';
+    const customerDisplay = inv.customer_name || '(Belum diisi)';
     const isIDR = inv.currency === 'IDR';
     // Invoice mata uang asing (reimbursement ke perusahaan luar negeri): jumlah selalu
     // dimasukkan dalam IDR, lalu nominal valuta dihitung otomatis dari Exchange Rate.
@@ -339,7 +357,7 @@ function buildInvoiceHtml(inv, co) {
     const exRateLine = (!isIDR && inv.exchange_rate) ? `
       <div class="ex-rate"><span>Exchange Rate :</span><strong>${Number(inv.exchange_rate).toLocaleString('en-US')}</strong></div>` : '';
 
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inv.invoice_no}</title>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceNoDisplay}</title>
     <style>
       @page { size: A4; margin: 18mm 15mm; }
       * { box-sizing: border-box; }
@@ -382,7 +400,9 @@ function buildInvoiceHtml(inv, co) {
       .footer .sig-name { font-weight:bold; border-top: 1px solid #000; padding-top:4px; display:inline-block; min-width:180px; }
       .footer .sig-title { font-weight:bold; }
       @media print { .no-print { display:none; } }
+      .draft-watermark { margin: 0 0 14px; padding: 8px 14px; border: 1px solid #b8860b; color: #8a6300; background:#fff8e1; font-family: Arial, sans-serif; font-size: 10.5pt; font-weight: bold; text-align:center; }
     </style></head><body>
+      ${isDraft ? `<div class="draft-watermark">DRAFT — Invoice ini belum resmi, masih bisa diubah dari menu Daftar Invoice.</div>` : ''}
       <div class="co-header">
         ${co.logo ? `<img class="co-logo" src="${co.logo}">` : ''}
         <div class="co-info">
@@ -395,16 +415,16 @@ function buildInvoiceHtml(inv, co) {
       </div>
       <div class="spacer-md"></div>
       <div class="to-label">TO :</div>
-      <div class="customer-name">${inv.customer_name}</div>
+      <div class="customer-name">${customerDisplay}</div>
       <div style="white-space:pre-line">${(inv.customer_address || '').split('//').map(s => s.trim()).filter(Boolean).join('\n')}</div>
       <div class="spacer-sm"></div>
       ${inv.attn ? `<div class="attn-row">ATTN : ${inv.attn}</div>` : ''}
       <div class="invoice-head">
         <div class="invoice-title">INVOICE</div>
         <table class="meta-table">
-          <tr><td class="label">INVOICE DATE</td><td class="colon">:</td><td class="value">${inv.invoice_date}</td></tr>
+          <tr><td class="label">INVOICE DATE</td><td class="colon">:</td><td class="value">${inv.invoice_date || '-'}</td></tr>
           <tr><td class="label">DUE DATE</td><td class="colon">:</td><td class="value">${inv.due_date || '-'}</td></tr>
-          <tr><td class="label">INVOICE NO.</td><td class="colon">:</td><td class="value">${inv.invoice_no}</td></tr>
+          <tr><td class="label">INVOICE NO.</td><td class="colon">:</td><td class="value">${invoiceNoDisplay}</td></tr>
         </table>
       </div>
       <table class="items ${hasValuta ? 'dual-amt' : ''}">
@@ -420,7 +440,7 @@ function buildInvoiceHtml(inv, co) {
         </tbody>
       </table>
       ${exRateLine}
-      ${inv.approval_status !== 'approved' ? `
+      ${(!isDraft && inv.approval_status !== 'approved') ? `
       <div class="pending-notice no-print" style="margin-top:16px;padding:10px 14px;border:1px solid #c0392b;color:#c0392b;font-family:Arial,sans-serif;font-size:10pt;">
         ⚠ Invoice ini belum disetujui Manager — tanda tangan belum muncul. Status akan berubah otomatis setelah di-approve.
       </div>` : ''}
@@ -434,10 +454,10 @@ function buildInvoiceHtml(inv, co) {
         </div>
         <div class="sig-block">
           <div class="sig-issuer">${co.name}</div>
-          ${inv.approval_status === 'approved' ? `
+          ${inv.approval_status === 'approved' && !isDraft ? `
           <div class="sig-name">${co.signer_name}</div>
           <div class="sig-title">${co.signer_title}</div>` : `
-          <div style="height:59px;display:flex;align-items:center;justify-content:center;font-size:9pt;color:#999;font-family:Arial,sans-serif;">( Menunggu persetujuan Manager )</div>
+          <div style="height:59px;display:flex;align-items:center;justify-content:center;font-size:9pt;color:#999;font-family:Arial,sans-serif;">( ${isDraft ? 'Draft — belum diajukan' : 'Menunggu persetujuan Manager'} )</div>
           <div class="sig-title" style="visibility:hidden">-</div>`}
         </div>
       </div>
@@ -461,18 +481,19 @@ app.get('/api/invoices/:id/print', async (req, res) => {
 // ---------- Preview view (invoice belum tersimpan, dipakai panel Preview di form Tambah Invoice) ----------
 app.post('/api/invoices/preview', async (req, res) => {
   try {
-    const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, exchange_rate } = req.body;
+    const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, exchange_rate, status } = req.body;
     const isManager = req.user.role === 'manager';
     const inv = {
-      invoice_no: invoice_no || '(Belum diisi)',
-      invoice_date: invoice_date || '',
+      invoice_no: invoice_no || null,
+      invoice_date: invoice_date || null,
       due_date: due_date || null,
-      customer_name: customer_name || '-',
+      customer_name: customer_name || null,
       customer_address: customer_address || '',
       attn: attn || '',
       currency: currency || 'IDR',
       batch: batch || '',
       remark: remark || '',
+      status: status || 'Belum Dibayar',
       exchange_rate: exchange_rate || null,
       approval_status: isManager ? 'approved' : 'pending',
       items: (items || []).map(it => ({ item_name: it.item_name, qty: it.qty || 1, amount: it.amount || 0 }))

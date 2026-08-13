@@ -266,6 +266,7 @@ function invoicesViewHtml() {
       </select>
       <select id="filterStatus">
         <option value="">Semua Status</option>
+        <option value="Draft" ${state.filters.status === 'Draft' ? 'selected' : ''}>Draft</option>
         <option value="Belum Dibayar" ${state.filters.status === 'Belum Dibayar' ? 'selected' : ''}>Belum Dibayar</option>
         <option value="Sudah Dibayar" ${state.filters.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
       </select>
@@ -294,22 +295,23 @@ function invoicesViewHtml() {
         ${state.invoices.map((inv, i) => `
           <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s" class="${state.selectedIds.has(inv.id) ? 'row-selected' : ''}">
             <td class="td-check"><input type="checkbox" class="row-check" data-id="${inv.id}" ${state.selectedIds.has(inv.id) ? 'checked' : ''}></td>
-            <td>${inv.invoice_no}</td>
-            <td>${inv.invoice_date}</td>
-            <td>${inv.customer_name}</td>
+            <td>${inv.invoice_no || '<span class="muted-cell">(belum diisi)</span>'}</td>
+            <td>${inv.invoice_date || '-'}</td>
+            <td>${inv.customer_name || '<span class="muted-cell">(belum diisi)</span>'}</td>
             <td>${inv.remark || ''}</td>
             <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
-            <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : 'badge-unpaid'}">${inv.status}</span></td>
+            <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : inv.status === 'Draft' ? 'badge-draft' : 'badge-unpaid'}">${inv.status}</span></td>
             <td>
+              ${inv.status === 'Draft' ? `<span class="badge badge-draft">Belum diajukan</span>` : `
               <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
                 ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
               </span>
-              ${inv.approval_status !== 'approved' && state.me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>` : ''}
+              ${inv.approval_status !== 'approved' && state.me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>` : ''}`}
             </td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id})">${icon('eye', 'icon-sm')} Preview</button>
-              <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">${icon('print', 'icon-sm')} Print</button>
-              <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} Edit</button>
+              ${inv.status !== 'Draft' ? `<button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">${icon('print', 'icon-sm')} Print</button>` : ''}
+              <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} ${inv.status === 'Draft' ? 'Lanjutkan' : 'Edit'}</button>
               <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>
             </td>
           </tr>
@@ -396,7 +398,7 @@ function wireBulkActions() {
   if (bulkApprove) bulkApprove.onclick = async () => {
     const ids = Array.from(state.selectedIds).filter(id => {
       const inv = state.invoices.find(i => i.id === id);
-      return inv && inv.approval_status !== 'approved';
+      return inv && inv.status !== 'Draft' && inv.approval_status !== 'approved';
     });
     if (ids.length === 0) { alert('Semua invoice terpilih sudah disetujui.'); return; }
     const original = bulkApprove.innerHTML;
@@ -421,7 +423,17 @@ function wireBulkActions() {
 }
 
 async function bulkSetStatus(status, btn) {
-  const ids = Array.from(state.selectedIds);
+  // Invoice berstatus Draft mungkin belum lengkap (no. invoice/tanggal/customer/item
+  // masih kosong), jadi tidak ikut diubah lewat aksi bulk Lunas/Belum Dibayar ini —
+  // harus diselesaikan dulu lewat "Lanjutkan" satu per satu.
+  const draftIds = Array.from(state.selectedIds).filter(id => {
+    const inv = state.invoices.find(i => i.id === id);
+    return inv && inv.status === 'Draft';
+  });
+  const ids = Array.from(state.selectedIds).filter(id => !draftIds.includes(id));
+  if (draftIds.length > 0) {
+    alert(`${draftIds.length} invoice berstatus Draft dilewati — selesaikan draft-nya dulu lewat tombol "Lanjutkan" sebelum mengubah status.`);
+  }
   if (ids.length === 0) return;
   const original = btn.innerHTML;
   setBulkButtonsDisabled(true);
@@ -929,9 +941,10 @@ function invoiceFormFieldsHtml(existing) {
           <input id="f_batch" value="${existing ? (existing.batch || '') : ''}">
         </div>
         <div class="form-group">
-          <label>Status</label>
+          <label>Status <span class="sub" style="font-weight:400;font-size:11px">(pilih Draft untuk disimpan sementara, belum resmi)</span></label>
           <select id="f_status">
-            <option value="Belum Dibayar" ${existing && existing.status === 'Belum Dibayar' ? 'selected' : ''}>Belum Dibayar</option>
+            <option value="Draft" ${existing && existing.status === 'Draft' ? 'selected' : ''}>Draft</option>
+            <option value="Belum Dibayar" ${(!existing || existing.status === 'Belum Dibayar') ? 'selected' : ''}>Belum Dibayar</option>
             <option value="Sudah Dibayar" ${existing && existing.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
           </select>
         </div>
@@ -960,6 +973,7 @@ function invoiceFormFieldsHtml(existing) {
       <div class="modal-actions">
         ${!isEdit ? `<button class="btn-secondary" id="btnPreview" type="button">${icon('eye', 'icon-sm')} Preview</button>` : ''}
         <button class="btn-secondary" id="btnCancel">${icon('x', 'icon-sm')} Batal</button>
+        <button class="btn-secondary" id="btnSaveDraft" type="button">${icon('check', 'icon-sm')} Simpan sebagai Draft</button>
         <button class="btn-primary" id="btnSave">${icon('check', 'icon-sm')} Simpan</button>
       </div>
   `;
@@ -1095,6 +1109,7 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
         currency: currencySel.value,
         batch: root.querySelector('#f_batch').value,
         remark: root.querySelector('#f_remark').value,
+        status: root.querySelector('#f_status').value,
         exchange_rate: root.querySelector('#f_exrate').value ? Number(root.querySelector('#f_exrate').value) : null,
         items: items.filter(it => it.item_name.trim() !== '')
       };
@@ -1119,33 +1134,41 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
     };
   }
 
-  const saveBtn = root.querySelector('#btnSave');
-  const saveBtnOriginal = saveBtn.innerHTML;
-  saveBtn.onclick = async () => {
+  function buildPayload(statusOverride) {
     const opt = customerSel.selectedOptions[0];
-    const payload = {
+    return {
       invoice_no: root.querySelector('#f_no').value.trim(),
       invoice_date: dateInput.value,
       due_date: root.querySelector('#f_due').value || null,
       customer_name: customerSel.value,
-      customer_address: opt.dataset.address || '',
+      customer_address: opt ? (opt.dataset.address || '') : '',
       attn: root.querySelector('#f_attn').value,
       currency: currencySel.value,
       batch: root.querySelector('#f_batch').value,
       remark: root.querySelector('#f_remark').value,
-      status: root.querySelector('#f_status').value,
+      status: statusOverride || root.querySelector('#f_status').value,
       exchange_rate: root.querySelector('#f_exrate').value ? Number(root.querySelector('#f_exrate').value) : null,
       items: items.filter(it => it.item_name.trim() !== '')
     };
-    if (!payload.invoice_no || !payload.invoice_date || payload.items.length === 0) {
-      root.querySelector('#formError').textContent = 'No. invoice, tanggal, dan minimal 1 item wajib diisi.';
-      return;
+  }
+
+  async function doSave(payload, btn) {
+    const isDraft = payload.status === 'Draft';
+    // Draft boleh disimpan belum lengkap: validasi ketat (no. invoice, tanggal, minimal
+    // 1 item, exchange rate) hanya berlaku untuk invoice yang bukan Draft.
+    if (!isDraft) {
+      if (!payload.invoice_no || !payload.invoice_date || payload.items.length === 0) {
+        root.querySelector('#formError').textContent = 'No. invoice, tanggal, dan minimal 1 item wajib diisi.';
+        return;
+      }
+      if (payload.currency !== 'IDR' && !payload.exchange_rate) {
+        root.querySelector('#formError').textContent = 'Exchange Rate wajib diisi untuk invoice dengan mata uang selain IDR, supaya amount valuta bisa dihitung otomatis.';
+        return;
+      }
     }
-    if (payload.currency !== 'IDR' && !payload.exchange_rate) {
-      root.querySelector('#formError').textContent = 'Exchange Rate wajib diisi untuk invoice dengan mata uang selain IDR, supaya amount valuta bisa dihitung otomatis.';
-      return;
-    }
-    saveBtn.disabled = true; saveBtn.innerHTML = spinner() + ' Menyimpan...';
+    root.querySelector('#formError').textContent = '';
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = spinner() + ' Menyimpan...';
     try {
       if (isEdit) {
         await api(`/api/invoices/${existing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -1155,9 +1178,17 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
       onSaved();
     } catch (e) {
       root.querySelector('#formError').textContent = e.message;
-      saveBtn.disabled = false; saveBtn.innerHTML = saveBtnOriginal;
+      btn.disabled = false; btn.innerHTML = original;
     }
-  };
+  }
+
+  const saveBtn = root.querySelector('#btnSave');
+  saveBtn.onclick = () => doSave(buildPayload(), saveBtn);
+
+  const saveDraftBtn = root.querySelector('#btnSaveDraft');
+  if (saveDraftBtn) {
+    saveDraftBtn.onclick = () => doSave(buildPayload('Draft'), saveDraftBtn);
+  }
 }
 
 // Modal Edit Invoice (dipakai dari tabel Daftar Invoice)

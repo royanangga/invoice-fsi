@@ -2,15 +2,19 @@
 
 create table if not exists invoices (
   id bigint generated always as identity primary key,
-  invoice_no text unique not null,
-  invoice_date date not null,
+  -- invoice_no, invoice_date, customer_name sengaja TIDAK "not null":
+  -- invoice dengan status 'Draft' boleh disimpan belum lengkap, dan
+  -- baru wajib diisi saat diselesaikan jadi invoice resmi (lihat api/index.js).
+  invoice_no text unique,
+  invoice_date date,
   due_date date,
-  customer_name text not null,
+  customer_name text,
   customer_address text,
   attn text,
   currency text not null default 'IDR',
   batch text,
   remark text,
+  -- status: 'Draft' | 'Belum Dibayar' | 'Sudah Dibayar'
   status text not null default 'Belum Dibayar',
   exchange_rate numeric,
   created_by text,
