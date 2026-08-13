@@ -1001,12 +1001,31 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
   updateCurrencyUI();
 
   const dateInput = root.querySelector('#f_date');
+  const dueInput = root.querySelector('#f_due');
+
+  // Due Date default = akhir bulan dari bulan BERIKUTNYA tanggal invoice.
+  // Contoh: tanggal invoice 12 Agustus 2026 -> due date 30 September 2026.
+  function computeDueDate(dateStr) {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const endOfNextMonth = new Date(y, m + 1, 0); // tanggal 0 dari (bulan+2) = tanggal terakhir bulan berikutnya
+    const yyyy = endOfNextMonth.getFullYear();
+    const mm = String(endOfNextMonth.getMonth() + 1).padStart(2, '0');
+    const dd = String(endOfNextMonth.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  function autoFillDueDate() {
+    dueInput.value = computeDueDate(dateInput.value);
+  }
+  dateInput.addEventListener('change', autoFillDueDate);
+  if (!isEdit) autoFillDueDate(); // invoice baru: langsung isi otomatis dari tanggal default (hari ini)
+
   if (!isEdit) {
     const fillNextNumber = async () => {
       const r = await api(`/api/next-number?date=${dateInput.value}`);
       root.querySelector('#f_no').value = r.invoice_no;
     };
-    dateInput.onchange = fillNextNumber;
+    dateInput.addEventListener('change', fillNextNumber);
     fillNextNumber();
     customerSel.dispatchEvent(new Event('change'));
   }
