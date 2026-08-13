@@ -245,6 +245,32 @@ header.topbar .sub { color: var(--muted); font-size: 13px; }
 table.list tr.row-selected td { background:rgba(14,124,123,0.07); }
 .row-check, #checkAll { width:15px; height:15px; cursor:pointer; accent-color: var(--teal); }
 
+/* ---------- Panel Preview (kanan) — Daftar Invoice & Tambah Invoice Baru ---------- */
+.content-split { display:flex; align-items:flex-start; gap:20px; }
+.content-main { flex:1; min-width:0; }
+.table-wrap { overflow-x:auto; border-radius:8px; }
+.preview-panel {
+  display:none; flex-direction:column; flex-shrink:0; width:440px;
+  background:var(--card); border-radius:10px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  position:sticky; top:26px; height:calc(100vh - 52px); overflow:hidden;
+  animation: slideInLeft .25s ease both;
+}
+.preview-panel.is-open { display:flex; }
+.preview-panel-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--border); flex-shrink:0; }
+.preview-panel-header h3 { margin:0; font-size:13.5px; color:var(--navy); display:flex; align-items:center; gap:7px; }
+.preview-close { width:28px; height:28px; padding:0; border-radius:7px; background:var(--bg); color:var(--muted); }
+.preview-close:hover { background:#e7ebee; color:var(--text); }
+.preview-panel-body { flex:1; position:relative; overflow:hidden; background:#eef1f3; }
+.preview-panel-body iframe { width:100%; height:100%; border:none; display:block; background:#fff; }
+.preview-panel-placeholder { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; text-align:center; padding:24px; color:var(--muted); font-size:12.5px; }
+.preview-panel-placeholder .icon-lg { opacity:.4; }
+.preview-loading { position:absolute; inset:0; z-index:2; display:flex; align-items:center; justify-content:center; background:#eef1f3; }
+
+@media (max-width: 1180px) {
+  .content-split { flex-direction:column; }
+  .preview-panel { width:100%; position:relative; top:0; height:min(70vh, 640px); }
+}
+
 @media (max-width: 880px) {
   .sidebar { transform: translateX(-100%); }
   .layout.sidebar-open .sidebar { transform: translateX(0); }

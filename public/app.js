@@ -20,7 +20,8 @@ const ICONS = {
   edit: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 17.25V20h2.75L17.8 8.94l-2.75-2.75L4 17.25z"/><path d="M14.5 4.94l2.75 2.75"/></svg>`,
   trash: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 6.5h16M9 6.5V4.3a1 1 0 011-1h4a1 1 0 011 1v2.2M6.5 6.5l.9 12.3a1.4 1.4 0 001.4 1.3h6.4a1.4 1.4 0 001.4-1.3l.9-12.3"/><path d="M10 10.5v6M14 10.5v6"/></svg>`,
   search: `<svg viewBox="0 0 24 24" class="icon"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-4.3-4.3"/></svg>`,
-  chevron: `<svg viewBox="0 0 24 24" class="icon"><path d="M7 10l5 5 5-5"/></svg>`
+  chevron: `<svg viewBox="0 0 24 24" class="icon"><path d="M7 10l5 5 5-5"/></svg>`,
+  eye: `<svg viewBox="0 0 24 24" class="icon"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.6"/></svg>`
 };
 function icon(name, extraClass) {
   const svg = ICONS[name] || '';
@@ -242,6 +243,8 @@ function invoicesViewHtml() {
   const isManager = state.me.role === 'manager';
   const allChecked = state.invoices.length > 0 && state.invoices.every(inv => state.selectedIds.has(inv.id));
   return `
+    <div class="content-split">
+    <div class="content-main">
     <header class="page-header">
       <div>
         <h1>${t.icon} ${t.title}</h1>
@@ -281,6 +284,7 @@ function invoicesViewHtml() {
     </div>
 
     ${state.invoices.length === 0 ? `<div class="empty-state">Belum ada invoice. Klik "+ Invoice Baru" untuk mulai.</div>` : `
+    <div class="table-wrap">
     <table class="list">
       <thead><tr>
         <th class="th-check"><input type="checkbox" id="checkAll" ${allChecked ? 'checked' : ''}></th>
@@ -303,6 +307,7 @@ function invoicesViewHtml() {
               ${inv.approval_status !== 'approved' && state.me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>` : ''}
             </td>
             <td>
+              <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id})">${icon('eye', 'icon-sm')} Preview</button>
               <button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">${icon('print', 'icon-sm')} Print</button>
               <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} Edit</button>
               <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>
@@ -310,7 +315,11 @@ function invoicesViewHtml() {
           </tr>
         `).join('')}
       </tbody>
-    </table>`}
+    </table>
+    </div>`}
+    </div>
+    ${previewPanelHtml('list')}
+    </div>
   `;
 }
 
@@ -323,6 +332,7 @@ function wireInvoicesView() {
   document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; refreshInvoices(); };
   document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; refreshInvoices(); };
   wireBulkActions();
+  wirePreviewPanelClose('list');
 }
 
 /* ---------- Bulk actions (invoice list) ---------- */
@@ -459,6 +469,44 @@ async function refreshInvoices() {
   state.selectedIds.clear();
   if (state.view === 'invoices') renderMain();
 }
+
+/* ---------- Panel Preview (di sisi kanan, dipakai di Daftar Invoice & Tambah Invoice Baru) ---------- */
+function previewPlaceholderHtml() {
+  return `<div class="preview-panel-placeholder">${icon('eye', 'icon-lg')}<p>Klik tombol Preview untuk melihat pratinjau invoice di sini.</p></div>`;
+}
+function previewPanelHtml(suffix) {
+  return `
+    <div class="preview-panel" id="previewPanel_${suffix}">
+      <div class="preview-panel-header">
+        <h3>${icon('eye', 'icon-sm')} Preview Invoice</h3>
+        <button class="preview-close" id="previewClose_${suffix}" type="button" aria-label="Tutup preview">${icon('x', 'icon-sm')}</button>
+      </div>
+      <div class="preview-panel-body" id="previewBody_${suffix}">${previewPlaceholderHtml()}</div>
+    </div>
+  `;
+}
+function wirePreviewPanelClose(suffix) {
+  const btn = document.getElementById(`previewClose_${suffix}`);
+  if (btn) btn.onclick = () => closePreviewPanel(suffix);
+}
+function openPreviewPanel(suffix) {
+  const panel = document.getElementById(`previewPanel_${suffix}`);
+  if (panel) panel.classList.add('is-open');
+}
+function closePreviewPanel(suffix) {
+  const panel = document.getElementById(`previewPanel_${suffix}`);
+  if (!panel) return;
+  panel.classList.remove('is-open');
+  const body = document.getElementById(`previewBody_${suffix}`);
+  if (body) body.innerHTML = previewPlaceholderHtml();
+}
+// Preview invoice yang sudah tersimpan (dipakai dari tabel Daftar Invoice) — langsung load via iframe.
+window.previewInvoiceRow = (id) => {
+  openPreviewPanel('list');
+  const body = document.getElementById('previewBody_list');
+  if (!body) return;
+  body.innerHTML = `<div class="preview-loading">${spinner('spinner-lg')}</div><iframe title="Preview Invoice" src="/api/invoices/${id}/print" onload="this.previousElementSibling && this.previousElementSibling.remove()"></iframe>`;
+};
 
 async function handleImportFile(e) {
   const file = e.target.files[0];
@@ -910,6 +958,7 @@ function invoiceFormFieldsHtml(existing) {
 
       <div id="formError" class="error-msg"></div>
       <div class="modal-actions">
+        ${!isEdit ? `<button class="btn-secondary" id="btnPreview" type="button">${icon('eye', 'icon-sm')} Preview</button>` : ''}
         <button class="btn-secondary" id="btnCancel">${icon('x', 'icon-sm')} Batal</button>
         <button class="btn-primary" id="btnSave">${icon('check', 'icon-sm')} Simpan</button>
       </div>
@@ -1032,6 +1081,44 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
 
   root.querySelector('#btnCancel').onclick = () => onCancel();
 
+  const previewBtn = root.querySelector('#btnPreview');
+  if (previewBtn) {
+    previewBtn.onclick = async () => {
+      const opt = customerSel.selectedOptions[0];
+      const payload = {
+        invoice_no: root.querySelector('#f_no').value.trim() || '(Belum diisi)',
+        invoice_date: dateInput.value,
+        due_date: root.querySelector('#f_due').value || null,
+        customer_name: customerSel.value,
+        customer_address: opt ? (opt.dataset.address || '') : '',
+        attn: root.querySelector('#f_attn').value,
+        currency: currencySel.value,
+        batch: root.querySelector('#f_batch').value,
+        remark: root.querySelector('#f_remark').value,
+        exchange_rate: root.querySelector('#f_exrate').value ? Number(root.querySelector('#f_exrate').value) : null,
+        items: items.filter(it => it.item_name.trim() !== '')
+      };
+      const original = previewBtn.innerHTML;
+      previewBtn.disabled = true;
+      previewBtn.innerHTML = spinner() + ' Memuat...';
+      try {
+        const res = await fetch('/api/invoices/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const html = await res.text();
+        openPreviewPanel('new');
+        const body = document.getElementById('previewBody_new');
+        if (body) {
+          body.innerHTML = '<iframe title="Preview Invoice"></iframe>';
+          body.querySelector('iframe').srcdoc = html;
+        }
+      } catch (e) {
+        alert('Gagal memuat preview: ' + e.message);
+      } finally {
+        previewBtn.disabled = false;
+        previewBtn.innerHTML = original;
+      }
+    };
+  }
+
   const saveBtn = root.querySelector('#btnSave');
   const saveBtnOriginal = saveBtn.innerHTML;
   saveBtn.onclick = async () => {
@@ -1093,6 +1180,8 @@ function openForm(existing) {
 // Halaman penuh Tambah Invoice Baru (sub-menu sidebar terpisah dari Daftar Invoice)
 function invoiceNewPageHtml() {
   return `
+    <div class="content-split">
+    <div class="content-main">
     <header class="page-header">
       <div>
         <h1>${icon('plus', 'icon-lg')} Tambah Invoice Baru</h1>
@@ -1101,6 +1190,9 @@ function invoiceNewPageHtml() {
     </header>
     <div class="panel" id="invoiceNewPanel">
       ${invoiceFormFieldsHtml(null)}
+    </div>
+    </div>
+    ${previewPanelHtml('new')}
     </div>
   `;
 }
@@ -1111,6 +1203,7 @@ function wireInvoiceNewPage() {
     onCancel: () => switchView('invoices'),
     onSaved: async () => { await refreshInvoices(); switchView('invoices'); }
   });
+  wirePreviewPanelClose('new');
 }
 
 /* ---------- Animasi klik untuk semua action button (pop + ripple) ---------- */

@@ -300,17 +300,19 @@ app.delete('/api/invoices/:id', async (req, res) => {
   }
 });
 
-// ---------- Print view ----------
-app.get('/api/invoices/:id/print', async (req, res) => {
-  try {
-    const supabase = getSupabase();
-    const { data: inv, error } = await supabase.from('invoices').select('*, items:invoice_items(*)').eq('id', req.params.id).single();
-    if (error || !inv) return res.status(404).send('Invoice tidak ditemukan');
-    const { data: companyRow } = await supabase.from('settings').select('value').eq('key', 'company').single();
-    const co = companyRow ? companyRow.value : {
-      name: 'PT. FUJI SEAT INDONESIA', subtitle: '', address_line1: '', address_line2: '', phone: '',
-      bank_name: '', bank_branch: '', swift_code: '', account_number: '', signer_name: '', signer_title: '', logo: null
-    };
+// ---------- Print / Preview HTML builder (dipakai oleh /print dan /preview) ----------
+const DEFAULT_COMPANY = {
+  name: 'PT. FUJI SEAT INDONESIA', subtitle: '', address_line1: '', address_line2: '', phone: '',
+  bank_name: '', bank_branch: '', swift_code: '', account_number: '', signer_name: '', signer_title: '', logo: null
+};
+
+async function getCompanySettings() {
+  const supabase = getSupabase();
+  const { data: companyRow } = await supabase.from('settings').select('value').eq('key', 'company').single();
+  return companyRow ? companyRow.value : DEFAULT_COMPANY;
+}
+
+function buildInvoiceHtml(inv, co) {
     const items = inv.items || [];
     const total = items.reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
     const isIDR = inv.currency === 'IDR';
@@ -337,7 +339,7 @@ app.get('/api/invoices/:id/print', async (req, res) => {
     const exRateLine = (!isIDR && inv.exchange_rate) ? `
       <div class="ex-rate"><span>Exchange Rate :</span><strong>${Number(inv.exchange_rate).toLocaleString('en-US')}</strong></div>` : '';
 
-    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inv.invoice_no}</title>
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inv.invoice_no}</title>
     <style>
       @page { size: A4; margin: 18mm 15mm; }
       * { box-sizing: border-box; }
@@ -440,7 +442,43 @@ app.get('/api/invoices/:id/print', async (req, res) => {
         </div>
       </div>
       <button class="no-print" onclick="window.print()" style="margin-top:30px;padding:8px 16px;">Print / Save as PDF</button>
-    </body></html>`);
+    </body></html>`;
+}
+
+// ---------- Print view (invoice tersimpan) ----------
+app.get('/api/invoices/:id/print', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data: inv, error } = await supabase.from('invoices').select('*, items:invoice_items(*)').eq('id', req.params.id).single();
+    if (error || !inv) return res.status(404).send('Invoice tidak ditemukan');
+    const co = await getCompanySettings();
+    res.send(buildInvoiceHtml(inv, co));
+  } catch (e) {
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
+// ---------- Preview view (invoice belum tersimpan, dipakai panel Preview di form Tambah Invoice) ----------
+app.post('/api/invoices/preview', async (req, res) => {
+  try {
+    const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, exchange_rate } = req.body;
+    const isManager = req.user.role === 'manager';
+    const inv = {
+      invoice_no: invoice_no || '(Belum diisi)',
+      invoice_date: invoice_date || '',
+      due_date: due_date || null,
+      customer_name: customer_name || '-',
+      customer_address: customer_address || '',
+      attn: attn || '',
+      currency: currency || 'IDR',
+      batch: batch || '',
+      remark: remark || '',
+      exchange_rate: exchange_rate || null,
+      approval_status: isManager ? 'approved' : 'pending',
+      items: (items || []).map(it => ({ item_name: it.item_name, qty: it.qty || 1, amount: it.amount || 0 }))
+    };
+    const co = await getCompanySettings();
+    res.send(buildInvoiceHtml(inv, co));
   } catch (e) {
     res.status(500).send('Error: ' + e.message);
   }
