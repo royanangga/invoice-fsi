@@ -1206,27 +1206,7 @@ function wireInvoiceNewPage() {
   wirePreviewPanelClose('new');
 }
 
-/* ---------- Animasi klik untuk semua action button (pop + ripple) ---------- */
-document.addEventListener('click', (e) => {
-  const btn = e.target.closest('button');
-  if (!btn || btn.disabled) return;
-
-  btn.classList.remove('btn-pop');
-  void btn.offsetWidth; // reset animasi supaya bisa retrigger tiap klik
-  btn.classList.add('btn-pop');
-
-  const rect = btn.getBoundingClientRect();
-  const hasCoords = e.clientX || e.clientY;
-  const x = hasCoords ? e.clientX - rect.left : rect.width / 2;
-  const y = hasCoords ? e.clientY - rect.top : rect.height / 2;
-
-  const ripple = document.createElement('span');
-  ripple.className = 'ripple';
-  ripple.style.left = x + 'px';
-  ripple.style.top = y + 'px';
-  btn.appendChild(ripple);
-  ripple.addEventListener('animationend', () => ripple.remove());
-});
+/* ---------- Efek klik tombol dijaga tetap ringan lewat CSS :active (lihat style.css) ---------- */
 
 (async () => {
   try {
