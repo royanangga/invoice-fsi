@@ -1,7 +1,8 @@
 const app = document.getElementById('app');
 let state = {
   invoices: [], settings: { customers: [] }, filters: { q: '', stage: '', customer: '' },
-  me: null, view: 'invoices', users: [], selectedIds: new Set()
+  me: null, view: 'invoices', users: [], selectedIds: new Set(),
+  approvalTab: 'pending', approvalList: []
 };
 
 /* ---------- Icon set (inline SVG, konsisten dgn palet UI) ---------- */
@@ -116,6 +117,7 @@ function initials(name) {
 
 const VIEW_TITLES = {
   invoices: { title: 'Daftar Invoice', icon: icon('invoice', 'icon-lg') },
+  approval: { title: 'Approval Invoice', icon: icon('check', 'icon-lg') },
   users: { title: 'Kelola User', icon: icon('users', 'icon-lg') },
   settings: { title: 'Pengaturan Perusahaan', icon: icon('settings', 'icon-lg') }
 };
@@ -153,6 +155,10 @@ function renderShell() {
               </div>
             </div>
           </div>
+          ${isManager ? `<button class="nav-item ${state.view === 'approval' ? 'active' : ''}" data-view="approval" type="button">
+            <span class="nav-icon">${icon('check')}</span> Approval
+            <span class="nav-badge" id="approvalBadge" style="display:none"></span>
+          </button>` : ''}
           ${isManager ? `<button class="nav-item ${state.view === 'users' ? 'active' : ''}" data-view="users" type="button">
             <span class="nav-icon">${icon('users')}</span> Kelola User
           </button>` : ''}
@@ -199,10 +205,11 @@ function renderShell() {
   document.getElementById('sidebarBackdrop').onclick = () => layoutEl.classList.remove('sidebar-open');
 
   renderMain();
+  updateApprovalBadge();
 }
 
 function switchView(view) {
-  if (view === 'users' && state.me.role !== 'manager') return;
+  if ((view === 'users' || view === 'approval') && state.me.role !== 'manager') return;
   state.view = view;
   state.selectedIds.clear();
   document.querySelectorAll('.nav-item[data-view]').forEach(btn => {
@@ -228,13 +235,31 @@ async function renderMain() {
       return;
     }
   }
+  if (state.view === 'approval') {
+    main.innerHTML = `<div class="loading-state">${spinner('spinner-lg')}<span>Memuat data approval...</span></div>`;
+    try {
+      await refreshApprovalList();
+    } catch (e) {
+      main.innerHTML = `<div class="empty-state">${e.message}</div>`;
+      return;
+    }
+  }
+  if (state.view === 'settings' && state.me.role === 'manager') {
+    try {
+      state.mySignature = await api('/api/me/signature');
+    } catch (e) {
+      state.mySignature = { title: '', signature: null };
+    }
+  }
   main.innerHTML = state.view === 'invoices' ? invoicesViewHtml()
     : state.view === 'invoice_new' ? invoiceNewPageHtml()
+    : state.view === 'approval' ? approvalViewHtml()
     : state.view === 'users' ? usersViewHtml()
     : settingsViewHtml();
 
   if (state.view === 'invoices') wireInvoicesView();
   else if (state.view === 'invoice_new') wireInvoiceNewPage();
+  else if (state.view === 'approval') wireApprovalView();
   else if (state.view === 'users') wireUsersView();
   else wireSettingsView();
 }
@@ -242,7 +267,6 @@ async function renderMain() {
 /* ---------- Invoice tab ---------- */
 function invoicesViewHtml() {
   const t = VIEW_TITLES.invoices;
-  const isManager = state.me.role === 'manager';
   const allChecked = state.invoices.length > 0 && state.invoices.every(inv => state.selectedIds.has(inv.id));
   return `
     <div class="content-split">
@@ -278,7 +302,6 @@ function invoicesViewHtml() {
     <div class="bulk-bar" id="bulkBar">
       <span class="bulk-count" id="bulkCount">0 dipilih</span>
       <div class="bulk-actions">
-        ${isManager ? `<button class="btn-primary btn-icon" id="bulkApprove" type="button">${icon('check', 'icon-sm')} Approve</button>` : ''}
         <button class="btn-danger btn-icon" id="bulkDelete" type="button">${icon('trash', 'icon-sm')} Hapus</button>
         <button class="btn-secondary btn-icon" id="bulkClear" type="button">${icon('x', 'icon-sm')} Batalkan</button>
       </div>
@@ -295,8 +318,6 @@ function invoicesViewHtml() {
         ${state.invoices.map((inv, i) => {
           const isDraft = inv.status === 'Draft';
           const isApproved = !isDraft && inv.approval_status === 'approved';
-          const isPending = !isDraft && !isApproved;
-          const isManagerUser = state.me.role === 'manager';
           return `
           <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s" class="${state.selectedIds.has(inv.id) ? 'row-selected' : ''}">
             <td class="td-check"><input type="checkbox" class="row-check" data-id="${inv.id}" ${state.selectedIds.has(inv.id) ? 'checked' : ''}></td>
@@ -309,8 +330,6 @@ function invoicesViewHtml() {
               <span class="badge ${isApproved ? 'badge-paid' : isDraft ? 'badge-draft' : 'badge-unpaid'}">
                 ${isDraft ? 'Draft' : isApproved ? 'Disetujui' : 'Menunggu Approval'}
               </span>
-              ${isPending && isManagerUser ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>` : ''}
-              ${isApproved && isManagerUser ? `<button class="btn-secondary btn-icon" style="margin-left:6px" onclick="unapproveInvoice(${inv.id})">${icon('x', 'icon-sm')} Batalkan Approval</button>` : ''}
             </td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id})">${icon('eye', 'icon-sm')} Preview</button>
@@ -406,31 +425,10 @@ function wireBulkActions() {
       bulkDelete.innerHTML = original;
     }
   };
-
-  const bulkApprove = document.getElementById('bulkApprove');
-  if (bulkApprove) bulkApprove.onclick = async () => {
-    const ids = Array.from(state.selectedIds).filter(id => {
-      const inv = state.invoices.find(i => i.id === id);
-      return inv && inv.status !== 'Draft' && inv.approval_status !== 'approved';
-    });
-    if (ids.length === 0) { alert('Semua invoice terpilih sudah disetujui.'); return; }
-    const original = bulkApprove.innerHTML;
-    setBulkButtonsDisabled(true);
-    bulkApprove.innerHTML = spinner() + ' Menyetujui...';
-    try {
-      await Promise.all(ids.map(id => api(`/api/invoices/${id}/approve`, { method: 'POST' })));
-      state.selectedIds.clear();
-      await refreshInvoices();
-    } catch (e) {
-      alert(e.message);
-      setBulkButtonsDisabled(false);
-      bulkApprove.innerHTML = original;
-    }
-  };
 }
 
 function setBulkButtonsDisabled(disabled) {
-  ['bulkApprove', 'bulkDelete', 'bulkClear'].forEach(id => {
+  ['bulkDelete', 'bulkClear'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = disabled;
   });
@@ -449,6 +447,7 @@ async function refreshInvoices() {
   state.invoices = await api('/api/invoices' + buildQuery());
   state.selectedIds.clear();
   if (state.view === 'invoices') renderMain();
+  updateApprovalBadge();
 }
 
 /* ---------- Panel Preview (di sisi kanan, dipakai di Daftar Invoice & Tambah Invoice Baru) ---------- */
@@ -481,13 +480,93 @@ function closePreviewPanel(suffix) {
   const body = document.getElementById(`previewBody_${suffix}`);
   if (body) body.innerHTML = previewPlaceholderHtml();
 }
-// Preview invoice yang sudah tersimpan (dipakai dari tabel Daftar Invoice) — langsung load via iframe.
-window.previewInvoiceRow = (id) => {
-  openPreviewPanel('list');
-  const body = document.getElementById('previewBody_list');
+// Preview invoice yang sudah tersimpan (dipakai dari tabel Daftar Invoice & Approval) — langsung load via iframe.
+window.previewInvoiceRow = (id, suffix) => {
+  suffix = suffix || 'list';
+  openPreviewPanel(suffix);
+  const body = document.getElementById(`previewBody_${suffix}`);
   if (!body) return;
   body.innerHTML = `<div class="preview-loading">${spinner('spinner-lg')}</div><iframe title="Preview Invoice" src="/api/invoices/${id}/print" onload="this.previousElementSibling && this.previousElementSibling.remove()"></iframe>`;
 };
+
+async function updateApprovalBadge() {
+  if (!state.me || state.me.role !== 'manager') return;
+  try {
+    const pending = await api('/api/invoices?status=Diajukan&approval_status=pending');
+    const el = document.getElementById('approvalBadge');
+    if (el) {
+      if (pending.length > 0) { el.textContent = pending.length; el.style.display = ''; }
+      else { el.style.display = 'none'; }
+    }
+  } catch (e) { /* abaikan, badge cuma penanda visual */ }
+}
+
+/* ---------- Approval tab (khusus manager) ---------- */
+async function refreshApprovalList() {
+  const p = state.approvalTab === 'approved'
+    ? '?status=Diajukan&approval_status=approved'
+    : '?status=Diajukan&approval_status=pending';
+  state.approvalList = await api('/api/invoices' + p);
+}
+
+function approvalViewHtml() {
+  const t = VIEW_TITLES.approval;
+  return `
+    <div class="content-split">
+    <div class="content-main">
+    <header class="page-header">
+      <div>
+        <h1>${t.icon} ${t.title}</h1>
+        <div class="sub">Invoice buatan staff perlu disetujui di sini dulu sebelum resmi terbit &amp; tertanda tangan</div>
+      </div>
+    </header>
+
+    <div class="settings-tabs" role="tablist">
+      <button type="button" class="settings-tab-btn ${state.approvalTab === 'pending' ? 'active' : ''}" data-atab="pending">${icon('invoice', 'icon-sm')} Menunggu Approval</button>
+      <button type="button" class="settings-tab-btn ${state.approvalTab === 'approved' ? 'active' : ''}" data-atab="approved">${icon('check', 'icon-sm')} Sudah Disetujui</button>
+    </div>
+
+    ${state.approvalList.length === 0 ? `<div class="empty-state">${state.approvalTab === 'pending' ? 'Tidak ada invoice yang menunggu approval.' : 'Belum ada invoice yang disetujui.'}</div>` : `
+    <div class="table-wrap">
+    <table class="list">
+      <thead><tr>
+        <th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Total</th><th>Dibuat oleh</th><th></th>
+      </tr></thead>
+      <tbody>
+        ${state.approvalList.map((inv, i) => `
+          <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s">
+            <td>${inv.invoice_no || '-'}</td>
+            <td>${inv.invoice_date || '-'}</td>
+            <td>${inv.customer_name || '-'}</td>
+            <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
+            <td>${inv.created_by || '-'}</td>
+            <td>
+              <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id}, 'approval')">${icon('eye', 'icon-sm')} Preview</button>
+              ${state.approvalTab === 'pending'
+                ? `<button class="btn-primary btn-icon" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>`
+                : `<button class="btn-secondary btn-icon" onclick="unapproveInvoice(${inv.id})">${icon('x', 'icon-sm')} Batalkan Approval</button>`}
+            </td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+    </div>`}
+    </div>
+    ${previewPanelHtml('approval')}
+    </div>
+  `;
+}
+
+function wireApprovalView() {
+  document.querySelectorAll('[data-atab]').forEach(btn => {
+    btn.onclick = async () => {
+      state.approvalTab = btn.dataset.atab;
+      await refreshApprovalList();
+      renderMain();
+    };
+  });
+  wirePreviewPanelClose('approval');
+}
 
 async function handleImportFile(e) {
   const file = e.target.files[0];
@@ -516,7 +595,9 @@ async function handleImportFile(e) {
 window.approveInvoice = async (id) => {
   try {
     await api(`/api/invoices/${id}/approve`, { method: 'POST' });
-    refreshInvoices();
+    if (state.view === 'approval') { await refreshApprovalList(); renderMain(); }
+    else await refreshInvoices();
+    updateApprovalBadge();
   } catch (e) {
     alert(e.message);
   }
@@ -526,7 +607,9 @@ window.unapproveInvoice = async (id) => {
   if (!confirm('Batalkan approval invoice ini? Statusnya akan kembali ke "Menunggu Approval" dan bisa diedit lagi.')) return;
   try {
     await api(`/api/invoices/${id}/unapprove`, { method: 'POST' });
-    refreshInvoices();
+    if (state.view === 'approval') { await refreshApprovalList(); renderMain(); }
+    else await refreshInvoices();
+    updateApprovalBadge();
   } catch (e) {
     alert(e.message);
   }
@@ -645,15 +728,18 @@ function wireUsersView() {
 }
 
 /* ---------- Pengaturan Perusahaan tab ---------- */
-let settingsActiveTab = 'company'; // 'company' | 'customers'
+let settingsActiveTab = 'company'; // 'company' | 'customers' | 'signature'
 let pendingLogoDataUrl = null;
+let pendingSignatureDataUrl = null;
 
 function settingsViewHtml() {
   const t = VIEW_TITLES.settings;
+  const isManager = state.me.role === 'manager';
   const co = state.settings.company || {
     name: 'PT. FUJI SEAT INDONESIA', subtitle: '', address_line1: '', address_line2: '', phone: '',
     bank_name: '', bank_branch: '', swift_code: '', account_number: '', signer_name: '', signer_title: ''
   };
+  const mySig = state.mySignature || { title: '', signature: null };
   return `
     <header class="page-header">
       <div>
@@ -665,6 +751,7 @@ function settingsViewHtml() {
     <div class="settings-tabs" role="tablist">
       <button type="button" class="settings-tab-btn ${settingsActiveTab === 'company' ? 'active' : ''}" data-tab="company">${icon('settings', 'icon-sm')} Data Perusahaan Saya</button>
       <button type="button" class="settings-tab-btn ${settingsActiveTab === 'customers' ? 'active' : ''}" data-tab="customers">${icon('plus', 'icon-sm')} Data Customer</button>
+      ${isManager ? `<button type="button" class="settings-tab-btn ${settingsActiveTab === 'signature' ? 'active' : ''}" data-tab="signature">${icon('check', 'icon-sm')} Tanda Tangan Saya</button>` : ''}
     </div>
 
     <div id="tabPanelCompany" class="settings-tab-panel ${settingsActiveTab === 'company' ? 'active' : ''}">
@@ -699,9 +786,10 @@ function settingsViewHtml() {
           <div class="form-group"><label>No. Rekening</label><input id="s_acc" value="${co.account_number}"></div>
         </div>
         <div class="form-row">
-          <div class="form-group"><label>Nama Penandatangan</label><input id="s_signer" value="${co.signer_name}"></div>
-          <div class="form-group"><label>Jabatan</label><input id="s_title" value="${co.signer_title}"></div>
+          <div class="form-group"><label>Nama Penandatangan (cadangan)</label><input id="s_signer" value="${co.signer_name}"></div>
+          <div class="form-group"><label>Jabatan (cadangan)</label><input id="s_title" value="${co.signer_title}"></div>
         </div>
+        <div class="sub" style="margin:-8px 0 16px;color:var(--muted);font-size:12px">Nama &amp; jabatan di atas cuma dipakai sebagai cadangan kalau manager yang approve belum mengisi tanda tangan pribadinya di tab "Tanda Tangan Saya".</div>
         <div id="settingsSaved" class="saved-msg"></div>
         <div class="modal-actions" style="justify-content:flex-start">
           <button class="btn-primary" id="btnSaveS">${icon('check')} Simpan Perubahan</button>
@@ -732,10 +820,39 @@ function settingsViewHtml() {
         </div>
       </div>
     </div>
+
+    ${isManager ? `
+    <div id="tabPanelSignature" class="settings-tab-panel ${settingsActiveTab === 'signature' ? 'active' : ''}">
+      <div class="panel">
+        <h2>Tanda Tangan Saya</h2>
+        <div class="sub" style="margin:-8px 0 16px;color:var(--muted);font-size:12.5px">Gambar tanda tangan ini otomatis dipasang di invoice begitu Anda meng-approve-nya lewat menu Approval.</div>
+
+        <div class="logo-uploader">
+          <div class="logo-preview" id="signaturePreview">${mySig.signature ? `<img src="${mySig.signature}" alt="Tanda tangan">` : `<span>Belum ada tanda tangan</span>`}</div>
+          <div class="logo-uploader-actions">
+            <label>Gambar Tanda Tangan</label>
+            <div class="sub" style="color:var(--muted);font-size:12px;margin-bottom:8px">Foto/scan tanda tangan dengan latar transparan atau putih. Format PNG/JPG, maksimal ±1MB.</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-secondary btn-icon" id="btnPickSignature" type="button">${icon('plus', 'icon-sm')} ${mySig.signature ? 'Ganti Tanda Tangan' : 'Upload Tanda Tangan'}</button>
+              ${mySig.signature ? `<button class="btn-danger btn-icon" id="btnRemoveSignature" type="button">${icon('trash', 'icon-sm')} Hapus</button>` : ''}
+            </div>
+            <input type="file" id="signatureFileInput" accept="image/png,image/jpeg,image/webp" style="display:none">
+            <div id="signatureError" class="error-msg"></div>
+          </div>
+        </div>
+
+        <div class="form-row"><div class="form-group"><label>Jabatan</label><input id="s_my_title" value="${mySig.title || ''}" placeholder="mis. Finance Manager"></div></div>
+        <div id="signatureSaved" class="saved-msg"></div>
+        <div class="modal-actions" style="justify-content:flex-start">
+          <button class="btn-primary" id="btnSaveSignature">${icon('check')} Simpan Tanda Tangan</button>
+        </div>
+      </div>
+    </div>` : ''}
   `;
 }
 
 let editableCustomers = [];
+
 
 function renderCustomersBody() {
   const body = document.getElementById('customersBody');
@@ -770,12 +887,15 @@ function renderCustomersBody() {
 }
 
 function wireSettingsView() {
+  const isManager = state.me.role === 'manager';
   document.querySelectorAll('.settings-tab-btn').forEach(btn => {
     btn.onclick = () => {
       settingsActiveTab = btn.dataset.tab;
       document.querySelectorAll('.settings-tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === settingsActiveTab));
       document.getElementById('tabPanelCompany').classList.toggle('active', settingsActiveTab === 'company');
       document.getElementById('tabPanelCustomers').classList.toggle('active', settingsActiveTab === 'customers');
+      const sigPanel = document.getElementById('tabPanelSignature');
+      if (sigPanel) sigPanel.classList.toggle('active', settingsActiveTab === 'signature');
     };
   });
 
@@ -884,6 +1004,66 @@ function wireSettingsView() {
       saveCBtn.disabled = false; saveCBtn.innerHTML = saveCBtnOriginal;
     }
   };
+
+  if (!isManager) return;
+
+  // ---- Tab "Tanda Tangan Saya" (khusus manager) ----
+  const mySig = state.mySignature || { title: '', signature: null };
+  pendingSignatureDataUrl = mySig.signature || null;
+  const sigInput = document.getElementById('signatureFileInput');
+  const sigErr = document.getElementById('signatureError');
+  const sigPickBtn = document.getElementById('btnPickSignature');
+  if (sigPickBtn) sigPickBtn.onclick = () => sigInput.click();
+  if (sigInput) sigInput.onchange = () => {
+    sigErr.textContent = '';
+    const file = sigInput.files[0];
+    if (!file) return;
+    if (file.size > 1.5 * 1024 * 1024) {
+      sigErr.textContent = 'Ukuran file terlalu besar, maksimal ±1.5MB.';
+      sigInput.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingSignatureDataUrl = reader.result;
+      document.getElementById('signaturePreview').innerHTML = `<img src="${pendingSignatureDataUrl}" alt="Tanda tangan">`;
+    };
+    reader.onerror = () => { sigErr.textContent = 'Gagal membaca file gambar.'; };
+    reader.readAsDataURL(file);
+  };
+  const removeSigBtn = document.getElementById('btnRemoveSignature');
+  if (removeSigBtn) {
+    removeSigBtn.onclick = () => {
+      pendingSignatureDataUrl = null;
+      sigInput.value = '';
+      document.getElementById('signaturePreview').innerHTML = `<span>Belum ada tanda tangan</span>`;
+    };
+  }
+
+  const saveSigBtn = document.getElementById('btnSaveSignature');
+  if (saveSigBtn) {
+    const saveSigBtnOriginal = saveSigBtn.innerHTML;
+    saveSigBtn.onclick = async () => {
+      saveSigBtn.disabled = true; saveSigBtn.innerHTML = spinner() + ' Menyimpan...';
+      const savedSig = document.getElementById('signatureSaved');
+      const payload = {
+        title: document.getElementById('s_my_title').value,
+        signature: pendingSignatureDataUrl
+      };
+      try {
+        await api('/api/me/signature', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        state.mySignature = payload;
+        savedSig.classList.remove('is-error');
+        savedSig.innerHTML = `${icon('check', 'icon-sm')} Tanda tangan tersimpan`;
+        setTimeout(() => { savedSig.textContent = ''; }, 2500);
+      } catch (e) {
+        savedSig.classList.add('is-error');
+        savedSig.textContent = e.message;
+      } finally {
+        saveSigBtn.disabled = false; saveSigBtn.innerHTML = saveSigBtnOriginal;
+      }
+    };
+  }
 }
 
 /* ---------- Invoice form (tetap modal, form-nya panjang & kontekstual per baris) ---------- */

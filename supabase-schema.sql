@@ -49,6 +49,9 @@ create table if not exists users (
   password_hash text not null,
   name text not null,
   role text not null check (role in ('staff', 'manager')),
+  -- title & signature khusus manager: dipasang otomatis di invoice yang mereka approve.
+  title text,
+  signature text, -- base64 data URL gambar tanda tangan
   created_at timestamptz default now()
 );
 -- Catatan: akun login TIDAK diisi lewat SQL ini. Buat akun lewat script

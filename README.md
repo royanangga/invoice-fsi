@@ -70,10 +70,20 @@ Menu ini hanya muncul dan hanya bisa diakses oleh akun dengan role **Manager**.
 
 **Perbedaan role:**
 - Staff & Manager punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan — **selama invoice itu belum disetujui Manager**.
-- Invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager"). Setelah **manager** klik tombol **Approve** di daftar invoice, tanda tangan Manager otomatis muncul di invoice.
+- Invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager").
 - Invoice buatan **manager** langsung otomatis "Disetujui".
-- **Setelah disetujui, invoice terkunci total** — tidak bisa diedit maupun dihapus lagi oleh siapapun (staff maupun manager), lewat tombol di UI ataupun langsung ke API. Kalau ternyata ada kesalahan, **Manager** perlu klik **"Batalkan Approval"** dulu di daftar invoice supaya statusnya kembali ke "Menunggu Approval" dan bisa direvisi, lalu di-approve ulang.
+- **Setelah disetujui, invoice terkunci total** — tidak bisa diedit maupun dihapus lagi oleh siapapun (staff maupun manager), lewat tombol di UI ataupun langsung ke API. Kalau ternyata ada kesalahan, **Manager** perlu klik **"Batalkan Approval"** dulu di menu **Approval** supaya statusnya kembali ke "Menunggu Approval" dan bisa direvisi, lalu di-approve ulang.
 - Invoice bisa disimpan dulu sebagai **Draft** (belum lengkap, belum diajukan) lewat tombol "Simpan sebagai Draft" di form — draft tidak butuh approval dan bisa dilanjutkan/diedit kapan saja sebelum diajukan resmi.
+
+**Menu Approval (khusus Manager):**
+- Ada menu tersendiri di sidebar bernama **"Approval"** (terpisah dari "Daftar Invoice"), dengan angka merah menunjukkan jumlah invoice yang sedang menunggu.
+- Berisi 2 tab: **"Menunggu Approval"** (klik tombol Approve di sini untuk menyetujui) dan **"Sudah Disetujui"** (klik "Batalkan Approval" di sini kalau perlu revisi).
+- Daftar Invoice sendiri sekarang murni untuk melihat & mengelola invoice — tidak ada lagi tombol approve di sana.
+
+**Tanda tangan otomatis:**
+- Setiap akun **Manager** bisa upload gambar tanda tangannya sendiri + isi jabatan lewat **Pengaturan Perusahaan → tab "Tanda Tangan Saya"**.
+- Begitu Manager tsb meng-approve sebuah invoice (lewat menu Approval), gambar tanda tangan & jabatannya **otomatis muncul** di hasil cetak/PDF invoice tersebut — sesuai manager yang benar-benar approve, bukan tanda tangan generik.
+- Field "Nama Penandatangan" & "Jabatan" di tab "Data Perusahaan Saya" cuma jadi **cadangan** (dipakai kalau manager yang approve belum sempat isi tanda tangan pribadinya).
 
 ## Langkah 6 — Import data lama dari Excel (lewat aplikasi)
 
@@ -99,14 +109,16 @@ lib/importXls.js          → logic parsing file Excel lama
 supabase-schema.sql       → skema database, jalankan sekali di Supabase SQL Editor (instalasi baru)
 add-draft-status.sql      → migrasi: fitur simpan invoice sebagai Draft (jalankan sekali kalau project sudah lama jalan)
 add-approval-lock.sql     → migrasi: hapus status pembayaran & kunci invoice yang sudah disetujui (jalankan sekali kalau project sudah lama jalan)
+add-manager-signature.sql → migrasi: tanda tangan pribadi per-manager (jalankan sekali kalau project sudah lama jalan)
 vercel.json               → konfigurasi routing Vercel
 .env.example               → contoh isi environment variables (untuk referensi Langkah 3)
 ```
 
 > Catatan: kalau Supabase project-mu **baru dibuat**, cukup jalankan `supabase-schema.sql`
 > saja (sudah termasuk semua kolom & aturan terbaru). Kalau project-mu **sudah pernah
-> jalan sebelumnya**, jalankan juga `add-draft-status.sql` lalu `add-approval-lock.sql`
-> secara berurutan di Supabase SQL Editor supaya tabel yang sudah ada ikut ter-update.
+> jalan sebelumnya**, jalankan juga `add-draft-status.sql`, `add-approval-lock.sql`, lalu
+> `add-manager-signature.sql` secara berurutan di Supabase SQL Editor supaya tabel yang
+> sudah ada ikut ter-update.
 
 
 > Catatan: `create-user.js` wajib dipakai satu kali di awal untuk membuat akun

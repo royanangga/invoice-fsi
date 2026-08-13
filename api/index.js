@@ -111,6 +111,33 @@ app.delete('/api/users/:id', requireRole('manager'), async (req, res) => {
   }
 });
 
+// ---------- Tanda tangan pribadi manager (dipasang otomatis di invoice yang mereka approve) ----------
+app.get('/api/me/signature', requireRole('manager'), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('users').select('title, signature').eq('id', req.user.sub).single();
+    if (error) throw error;
+    res.json(data || { title: null, signature: null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.put('/api/me/signature', requireRole('manager'), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { title, signature } = req.body;
+    const { error } = await supabase.from('users').update({
+      title: title || null,
+      signature: signature || null
+    }).eq('id', req.user.sub);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ---------- Import data lama dari Excel (upload lewat browser) ----------
 app.post('/api/import-xls', upload.single('file'), async (req, res) => {
   try {
@@ -363,7 +390,7 @@ async function getCompanySettings() {
   return companyRow ? companyRow.value : DEFAULT_COMPANY;
 }
 
-function buildInvoiceHtml(inv, co) {
+function buildInvoiceHtml(inv, co, approver) {
     const items = inv.items || [];
     const total = items.reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
     const isDraft = inv.status === 'Draft';
@@ -432,7 +459,9 @@ function buildInvoiceHtml(inv, co) {
       .footer .bank-block { font-size: 10pt; }
       .footer .bank-block .co-repeat { font-size: 11pt; font-weight:bold; margin-bottom:4px; }
       .footer .sig-block { text-align:center; font-size: 11pt; }
-      .footer .sig-issuer { font-weight:bold; margin-bottom: 55px; }
+      .footer .sig-issuer { font-weight:bold; margin-bottom: 6px; }
+      .footer .sig-img-wrap { height:52px; display:flex; align-items:center; justify-content:center; margin-bottom:2px; }
+      .footer .sig-img-wrap img { max-height:52px; max-width:170px; object-fit:contain; }
       .footer .sig-name { font-weight:bold; border-top: 1px solid #000; padding-top:4px; display:inline-block; min-width:180px; }
       .footer .sig-title { font-weight:bold; }
       @media print { .no-print { display:none; } }
@@ -491,9 +520,10 @@ function buildInvoiceHtml(inv, co) {
         <div class="sig-block">
           <div class="sig-issuer">${co.name}</div>
           ${inv.approval_status === 'approved' && !isDraft ? `
-          <div class="sig-name">${co.signer_name}</div>
-          <div class="sig-title">${co.signer_title}</div>` : `
-          <div style="height:59px;display:flex;align-items:center;justify-content:center;font-size:9pt;color:#999;font-family:Arial,sans-serif;">( ${isDraft ? 'Draft — belum diajukan' : 'Menunggu persetujuan Manager'} )</div>
+          <div class="sig-img-wrap">${approver && approver.signature ? `<img src="${approver.signature}">` : ''}</div>
+          <div class="sig-name">${(approver && approver.name) || co.signer_name || inv.approved_by || ''}</div>
+          <div class="sig-title">${(approver && approver.title) || co.signer_title || ''}</div>` : `
+          <div class="sig-img-wrap" style="height:59px;font-size:9pt;color:#999;font-family:Arial,sans-serif;">( ${isDraft ? 'Draft — belum diajukan' : 'Menunggu persetujuan Manager'} )</div>
           <div class="sig-title" style="visibility:hidden">-</div>`}
         </div>
       </div>
@@ -508,7 +538,12 @@ app.get('/api/invoices/:id/print', async (req, res) => {
     const { data: inv, error } = await supabase.from('invoices').select('*, items:invoice_items(*)').eq('id', req.params.id).single();
     if (error || !inv) return res.status(404).send('Invoice tidak ditemukan');
     const co = await getCompanySettings();
-    res.send(buildInvoiceHtml(inv, co));
+    let approver = null;
+    if (inv.approval_status === 'approved' && inv.approved_by) {
+      const { data: u } = await supabase.from('users').select('name, title, signature').eq('username', inv.approved_by).single();
+      approver = u || null;
+    }
+    res.send(buildInvoiceHtml(inv, co, approver));
   } catch (e) {
     res.status(500).send('Error: ' + e.message);
   }
@@ -517,6 +552,7 @@ app.get('/api/invoices/:id/print', async (req, res) => {
 // ---------- Preview view (invoice belum tersimpan, dipakai panel Preview di form Tambah Invoice) ----------
 app.post('/api/invoices/preview', async (req, res) => {
   try {
+    const supabase = getSupabase();
     const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, exchange_rate, status } = req.body;
     const isManager = req.user.role === 'manager';
     const inv = {
@@ -532,10 +568,16 @@ app.post('/api/invoices/preview', async (req, res) => {
       status: status === 'Draft' ? 'Draft' : 'Diajukan',
       exchange_rate: exchange_rate || null,
       approval_status: isManager ? 'approved' : 'pending',
+      approved_by: isManager ? req.user.username : null,
       items: (items || []).map(it => ({ item_name: it.item_name, qty: it.qty || 1, amount: it.amount || 0 }))
     };
     const co = await getCompanySettings();
-    res.send(buildInvoiceHtml(inv, co));
+    let approver = null;
+    if (isManager) {
+      const { data: u } = await supabase.from('users').select('name, title, signature').eq('id', req.user.sub).single();
+      approver = u || null;
+    }
+    res.send(buildInvoiceHtml(inv, co, approver));
   } catch (e) {
     res.status(500).send('Error: ' + e.message);
   }
