@@ -134,7 +134,7 @@ function renderShell() {
           <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Tutup menu">${icon('x')}</button>
         </div>
         <nav class="sidebar-nav">
-          <div class="nav-group ${(state.view === 'invoices' || state.view === 'invoice_new') ? 'nav-group-open' : ''}" style="animation-delay:.02s">
+          <div class="nav-group ${(state.view === 'invoices' || state.view === 'invoice_new') ? 'nav-group-open' : ''}">
             <button class="nav-item nav-parent" id="navInvoiceToggle" type="button">
               <span class="nav-icon">${icon('invoice')}</span> Invoice
               <span class="nav-caret">${icon('chevron', 'icon-sm')}</span>
@@ -150,10 +150,10 @@ function renderShell() {
               </div>
             </div>
           </div>
-          ${isManager ? `<button class="nav-item ${state.view === 'users' ? 'active' : ''}" data-view="users" type="button" style="animation-delay:.06s">
+          ${isManager ? `<button class="nav-item ${state.view === 'users' ? 'active' : ''}" data-view="users" type="button">
             <span class="nav-icon">${icon('users')}</span> Kelola User
           </button>` : ''}
-          <button class="nav-item ${state.view === 'settings' ? 'active' : ''}" data-view="settings" type="button" style="animation-delay:.10s">
+          <button class="nav-item ${state.view === 'settings' ? 'active' : ''}" data-view="settings" type="button">
             <span class="nav-icon">${icon('settings')}</span> Pengaturan Perusahaan
           </button>
         </nav>
