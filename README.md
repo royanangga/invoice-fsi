@@ -69,10 +69,11 @@ Bisa tambah/hapus akun staff/manager lain kapan saja dari sini, tanpa perlu inst
 Menu ini hanya muncul dan hanya bisa diakses oleh akun dengan role **Manager**.
 
 **Perbedaan role:**
-- Staff & Manager punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan.
-- Bedanya: invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager"). Setelah **manager** klik tombol **Approve** di daftar invoice, tanda tangan otomatis muncul.
+- Staff & Manager punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan — **selama invoice itu belum disetujui Manager**.
+- Invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager"). Setelah **manager** klik tombol **Approve** di daftar invoice, tanda tangan Manager otomatis muncul di invoice.
 - Invoice buatan **manager** langsung otomatis "Disetujui".
-- Kalau staff mengedit invoice yang sudah disetujui, statusnya otomatis kembali ke "Menunggu Approval".
+- **Setelah disetujui, invoice terkunci total** — tidak bisa diedit maupun dihapus lagi oleh siapapun (staff maupun manager), lewat tombol di UI ataupun langsung ke API. Kalau ternyata ada kesalahan, **Manager** perlu klik **"Batalkan Approval"** dulu di daftar invoice supaya statusnya kembali ke "Menunggu Approval" dan bisa direvisi, lalu di-approve ulang.
+- Invoice bisa disimpan dulu sebagai **Draft** (belum lengkap, belum diajukan) lewat tombol "Simpan sebagai Draft" di form — draft tidak butuh approval dan bisa dilanjutkan/diedit kapan saja sebelum diajukan resmi.
 
 ## Langkah 6 — Import data lama dari Excel (lewat aplikasi)
 
@@ -95,10 +96,18 @@ lib/supabaseClient.js     → koneksi ke Supabase
 lib/auth.js               → hashing password & sesi login (JWT + cookie)
 lib/utils.js              → helper (nomor invoice otomatis, format angka)
 lib/importXls.js          → logic parsing file Excel lama
-supabase-schema.sql       → skema database, jalankan sekali di Supabase SQL Editor
+supabase-schema.sql       → skema database, jalankan sekali di Supabase SQL Editor (instalasi baru)
+add-draft-status.sql      → migrasi: fitur simpan invoice sebagai Draft (jalankan sekali kalau project sudah lama jalan)
+add-approval-lock.sql     → migrasi: hapus status pembayaran & kunci invoice yang sudah disetujui (jalankan sekali kalau project sudah lama jalan)
 vercel.json               → konfigurasi routing Vercel
 .env.example               → contoh isi environment variables (untuk referensi Langkah 3)
 ```
+
+> Catatan: kalau Supabase project-mu **baru dibuat**, cukup jalankan `supabase-schema.sql`
+> saja (sudah termasuk semua kolom & aturan terbaru). Kalau project-mu **sudah pernah
+> jalan sebelumnya**, jalankan juga `add-draft-status.sql` lalu `add-approval-lock.sql`
+> secara berurutan di Supabase SQL Editor supaya tabel yang sudah ada ikut ter-update.
+
 
 > Catatan: `create-user.js` wajib dipakai satu kali di awal untuk membuat akun
 > manager pertama (lihat Langkah 4). Setelah itu tidak wajib dipakai lagi, karena

@@ -180,9 +180,10 @@ app.get('/api/next-number', async (req, res) => {
 app.get('/api/invoices', async (req, res) => {
   try {
     const supabase = getSupabase();
-    const { q, status, customer } = req.query;
+    const { q, status, customer, approval_status } = req.query;
     let query = supabase.from('invoices').select('*, items:invoice_items(*)').order('invoice_date', { ascending: false }).order('id', { ascending: false });
     if (status) query = query.eq('status', status);
+    if (approval_status) query = query.eq('approval_status', approval_status);
     if (customer) query = query.eq('customer_name', customer);
     if (q) query = query.or(`invoice_no.ilike.%${q}%,remark.ilike.%${q}%`);
     const { data, error } = await query;
@@ -227,7 +228,7 @@ app.post('/api/invoices', async (req, res) => {
       due_date: due_date || null,
       customer_name: customer_name || null,
       customer_address: customer_address || '', attn: attn || '', currency: currency || 'IDR',
-      batch: batch || '', remark: remark || '', status: status || 'Belum Dibayar',
+      batch: batch || '', remark: remark || '', status: isDraft ? 'Draft' : 'Diajukan',
       exchange_rate: exchange_rate || null,
       created_by: req.user.username,
       created_by_role: req.user.role,
@@ -258,6 +259,13 @@ app.put('/api/invoices/:id', async (req, res) => {
     if (!isDraft && (!invoice_no || !invoice_date || !customer_name)) {
       return res.status(400).json({ error: 'invoice_no, invoice_date, customer_name wajib diisi' });
     }
+    // Invoice yang sudah disetujui Manager terkunci total — tidak bisa diedit lewat API
+    // sampai approval-nya dibatalkan dulu (lihat POST /api/invoices/:id/unapprove).
+    const { data: current, error: curErr } = await supabase.from('invoices').select('approval_status').eq('id', req.params.id).single();
+    if (curErr || !current) return res.status(404).json({ error: 'Invoice tidak ditemukan' });
+    if (current.approval_status === 'approved') {
+      return res.status(403).json({ error: 'Invoice ini sudah disetujui Manager dan terkunci — tidak bisa diedit. Batalkan approval-nya dulu kalau perlu revisi.' });
+    }
     const isManager = req.user.role === 'manager';
     const nowIso = new Date().toISOString();
     const { error: updErr } = await supabase.from('invoices').update({
@@ -266,7 +274,7 @@ app.put('/api/invoices/:id', async (req, res) => {
       due_date: due_date || null,
       customer_name: customer_name || null,
       customer_address: customer_address || '', attn: attn || '', currency: currency || 'IDR',
-      batch: batch || '', remark: remark || '', status: status || 'Belum Dibayar',
+      batch: batch || '', remark: remark || '', status: isDraft ? 'Draft' : 'Diajukan',
       exchange_rate: exchange_rate || null,
       approval_status: isManager ? 'approved' : 'pending',
       approved_by: isManager ? req.user.username : null,
@@ -288,10 +296,16 @@ app.put('/api/invoices/:id', async (req, res) => {
   }
 });
 
-// Manager menyetujui invoice buatan staff — tanda tangan baru muncul di print setelah ini
+// Manager menyetujui invoice buatan staff — tanda tangan baru muncul di print setelah ini,
+// dan invoice langsung terkunci (tidak bisa diedit/dihapus lagi).
 app.post('/api/invoices/:id/approve', requireRole('manager'), async (req, res) => {
   try {
     const supabase = getSupabase();
+    const { data: current, error: curErr } = await supabase.from('invoices').select('status').eq('id', req.params.id).single();
+    if (curErr || !current) return res.status(404).json({ error: 'Invoice tidak ditemukan' });
+    if (current.status === 'Draft') {
+      return res.status(400).json({ error: 'Invoice ini masih Draft — lengkapi dan ajukan dulu sebelum bisa di-approve.' });
+    }
     const { error } = await supabase.from('invoices').update({
       approval_status: 'approved',
       approved_by: req.user.username,
@@ -304,9 +318,31 @@ app.post('/api/invoices/:id/approve', requireRole('manager'), async (req, res) =
   }
 });
 
+// Manager membatalkan approval (kembali ke "Menunggu Approval") — dipakai kalau
+// ternyata ada kesalahan dan invoice perlu direvisi lagi setelah terlanjur di-approve.
+app.post('/api/invoices/:id/unapprove', requireRole('manager'), async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from('invoices').update({
+      approval_status: 'pending',
+      approved_by: null,
+      approved_at: null
+    }).eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.delete('/api/invoices/:id', async (req, res) => {
   try {
     const supabase = getSupabase();
+    // Invoice resmi yang sudah disetujui tidak boleh dihapus begitu saja.
+    const { data: current } = await supabase.from('invoices').select('approval_status').eq('id', req.params.id).single();
+    if (current && current.approval_status === 'approved') {
+      return res.status(403).json({ error: 'Invoice ini sudah disetujui Manager dan tidak bisa dihapus. Batalkan approval-nya dulu kalau memang perlu dihapus.' });
+    }
     const { error } = await supabase.from('invoices').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ ok: true });
@@ -493,7 +529,7 @@ app.post('/api/invoices/preview', async (req, res) => {
       currency: currency || 'IDR',
       batch: batch || '',
       remark: remark || '',
-      status: status || 'Belum Dibayar',
+      status: status === 'Draft' ? 'Draft' : 'Diajukan',
       exchange_rate: exchange_rate || null,
       approval_status: isManager ? 'approved' : 'pending',
       items: (items || []).map(it => ({ item_name: it.item_name, qty: it.qty || 1, amount: it.amount || 0 }))
@@ -513,10 +549,11 @@ app.get('/api/export', async (req, res) => {
     if (error) throw error;
     const summaryRows = (invoices || []).map(inv => {
       const total = (inv.items || []).reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
+      const stage = inv.status === 'Draft' ? 'Draft' : (inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval');
       return {
         'INVOICE NO.': inv.invoice_no, 'INVOICE DATE': inv.invoice_date, 'DUE DATE': inv.due_date,
         'CUSTOMER': inv.customer_name, 'REMARK': inv.remark, 'BATCH': inv.batch,
-        'CURRENCY': inv.currency, 'TOTAL': total, 'STATUS': inv.status
+        'CURRENCY': inv.currency, 'TOTAL': total, 'STATUS': stage
       };
     });
     const wb = XLSX.utils.book_new();

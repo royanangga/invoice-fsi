@@ -112,7 +112,7 @@ async function main() {
         due_date: dueDate,
         customer_name: customerName || 'Unknown',
         customer_address: addressLines.join(', '),
-        attn, currency, batch: '', remark, status: 'Belum Dibayar'
+        attn, currency, batch: '', remark, status: 'Diajukan', approval_status: 'approved'
       }).select().single();
 
       if (invErr) { errors.push(`${sheetName}: ${invErr.message}`); continue; }

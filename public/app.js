@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 let state = {
-  invoices: [], settings: { customers: [] }, filters: { q: '', status: '', customer: '' },
+  invoices: [], settings: { customers: [] }, filters: { q: '', stage: '', customer: '' },
   me: null, view: 'invoices', users: [], selectedIds: new Set()
 };
 
@@ -97,8 +97,10 @@ async function loadAll() {
 function buildQuery() {
   const p = new URLSearchParams();
   if (state.filters.q) p.set('q', state.filters.q);
-  if (state.filters.status) p.set('status', state.filters.status);
   if (state.filters.customer) p.set('customer', state.filters.customer);
+  if (state.filters.stage === 'Draft') p.set('status', 'Draft');
+  else if (state.filters.stage === 'Pending') { p.set('status', 'Diajukan'); p.set('approval_status', 'pending'); }
+  else if (state.filters.stage === 'Approved') { p.set('status', 'Diajukan'); p.set('approval_status', 'approved'); }
   const s = p.toString();
   return s ? `?${s}` : '';
 }
@@ -266,9 +268,9 @@ function invoicesViewHtml() {
       </select>
       <select id="filterStatus">
         <option value="">Semua Status</option>
-        <option value="Draft" ${state.filters.status === 'Draft' ? 'selected' : ''}>Draft</option>
-        <option value="Belum Dibayar" ${state.filters.status === 'Belum Dibayar' ? 'selected' : ''}>Belum Dibayar</option>
-        <option value="Sudah Dibayar" ${state.filters.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
+        <option value="Draft" ${state.filters.stage === 'Draft' ? 'selected' : ''}>Draft</option>
+        <option value="Pending" ${state.filters.stage === 'Pending' ? 'selected' : ''}>Menunggu Approval</option>
+        <option value="Approved" ${state.filters.stage === 'Approved' ? 'selected' : ''}>Disetujui</option>
       </select>
       <div class="spacer"></div>
     </div>
@@ -276,8 +278,6 @@ function invoicesViewHtml() {
     <div class="bulk-bar" id="bulkBar">
       <span class="bulk-count" id="bulkCount">0 dipilih</span>
       <div class="bulk-actions">
-        <button class="btn-secondary btn-icon" id="bulkPaid" type="button">${icon('check', 'icon-sm')} Tandai Lunas</button>
-        <button class="btn-secondary btn-icon" id="bulkUnpaid" type="button">${icon('x', 'icon-sm')} Tandai Belum Dibayar</button>
         ${isManager ? `<button class="btn-primary btn-icon" id="bulkApprove" type="button">${icon('check', 'icon-sm')} Approve</button>` : ''}
         <button class="btn-danger btn-icon" id="bulkDelete" type="button">${icon('trash', 'icon-sm')} Hapus</button>
         <button class="btn-secondary btn-icon" id="bulkClear" type="button">${icon('x', 'icon-sm')} Batalkan</button>
@@ -289,10 +289,15 @@ function invoicesViewHtml() {
     <table class="list">
       <thead><tr>
         <th class="th-check"><input type="checkbox" id="checkAll" ${allChecked ? 'checked' : ''}></th>
-        <th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th>Approval</th><th></th>
+        <th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th></th>
       </tr></thead>
       <tbody>
-        ${state.invoices.map((inv, i) => `
+        ${state.invoices.map((inv, i) => {
+          const isDraft = inv.status === 'Draft';
+          const isApproved = !isDraft && inv.approval_status === 'approved';
+          const isPending = !isDraft && !isApproved;
+          const isManagerUser = state.me.role === 'manager';
+          return `
           <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s" class="${state.selectedIds.has(inv.id) ? 'row-selected' : ''}">
             <td class="td-check"><input type="checkbox" class="row-check" data-id="${inv.id}" ${state.selectedIds.has(inv.id) ? 'checked' : ''}></td>
             <td>${inv.invoice_no || '<span class="muted-cell">(belum diisi)</span>'}</td>
@@ -300,22 +305,21 @@ function invoicesViewHtml() {
             <td>${inv.customer_name || '<span class="muted-cell">(belum diisi)</span>'}</td>
             <td>${inv.remark || ''}</td>
             <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
-            <td><span class="badge ${inv.status === 'Sudah Dibayar' ? 'badge-paid' : inv.status === 'Draft' ? 'badge-draft' : 'badge-unpaid'}">${inv.status}</span></td>
             <td>
-              ${inv.status === 'Draft' ? `<span class="badge badge-draft">Belum diajukan</span>` : `
-              <span class="badge ${inv.approval_status === 'approved' ? 'badge-paid' : 'badge-unpaid'}">
-                ${inv.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval'}
+              <span class="badge ${isApproved ? 'badge-paid' : isDraft ? 'badge-draft' : 'badge-unpaid'}">
+                ${isDraft ? 'Draft' : isApproved ? 'Disetujui' : 'Menunggu Approval'}
               </span>
-              ${inv.approval_status !== 'approved' && state.me.role === 'manager' ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>` : ''}`}
+              ${isPending && isManagerUser ? `<button class="btn-primary btn-icon" style="margin-left:6px" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>` : ''}
+              ${isApproved && isManagerUser ? `<button class="btn-secondary btn-icon" style="margin-left:6px" onclick="unapproveInvoice(${inv.id})">${icon('x', 'icon-sm')} Batalkan Approval</button>` : ''}
             </td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id})">${icon('eye', 'icon-sm')} Preview</button>
-              ${inv.status !== 'Draft' ? `<button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">${icon('print', 'icon-sm')} Print</button>` : ''}
-              <button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} ${inv.status === 'Draft' ? 'Lanjutkan' : 'Edit'}</button>
-              <button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>
+              ${!isDraft ? `<button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">${icon('print', 'icon-sm')} Print</button>` : ''}
+              ${!isApproved ? `<button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} ${isDraft ? 'Lanjutkan' : 'Edit'}</button>` : ''}
+              ${!isApproved ? `<button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>` : ''}
             </td>
           </tr>
-        `).join('')}
+        `; }).join('')}
       </tbody>
     </table>
     </div>`}
@@ -332,7 +336,7 @@ function wireInvoicesView() {
   document.getElementById('importFile').onchange = handleImportFile;
   document.getElementById('q').oninput = debounce(e => { state.filters.q = e.target.value; refreshInvoices(); }, 350);
   document.getElementById('filterCustomer').onchange = e => { state.filters.customer = e.target.value; refreshInvoices(); };
-  document.getElementById('filterStatus').onchange = e => { state.filters.status = e.target.value; refreshInvoices(); };
+  document.getElementById('filterStatus').onchange = e => { state.filters.stage = e.target.value; refreshInvoices(); };
   wireBulkActions();
   wirePreviewPanelClose('list');
 }
@@ -377,7 +381,16 @@ function wireBulkActions() {
 
   const bulkDelete = document.getElementById('bulkDelete');
   if (bulkDelete) bulkDelete.onclick = async () => {
-    const ids = Array.from(state.selectedIds);
+    // Invoice yang sudah disetujui terkunci — tidak ikut dihapus lewat aksi massal ini.
+    const lockedCount = Array.from(state.selectedIds).filter(id => {
+      const inv = state.invoices.find(i => i.id === id);
+      return inv && inv.approval_status === 'approved';
+    }).length;
+    const ids = Array.from(state.selectedIds).filter(id => {
+      const inv = state.invoices.find(i => i.id === id);
+      return inv && inv.approval_status !== 'approved';
+    });
+    if (lockedCount > 0) alert(`${lockedCount} invoice yang sudah disetujui dilewati — tidak bisa dihapus.`);
     if (ids.length === 0) return;
     if (!confirm(`Hapus ${ids.length} invoice terpilih? Tindakan ini tidak bisa dibatalkan.`)) return;
     const original = bulkDelete.innerHTML;
@@ -414,54 +427,10 @@ function wireBulkActions() {
       bulkApprove.innerHTML = original;
     }
   };
-
-  const bulkPaid = document.getElementById('bulkPaid');
-  if (bulkPaid) bulkPaid.onclick = () => bulkSetStatus('Sudah Dibayar', bulkPaid);
-
-  const bulkUnpaid = document.getElementById('bulkUnpaid');
-  if (bulkUnpaid) bulkUnpaid.onclick = () => bulkSetStatus('Belum Dibayar', bulkUnpaid);
-}
-
-async function bulkSetStatus(status, btn) {
-  // Invoice berstatus Draft mungkin belum lengkap (no. invoice/tanggal/customer/item
-  // masih kosong), jadi tidak ikut diubah lewat aksi bulk Lunas/Belum Dibayar ini —
-  // harus diselesaikan dulu lewat "Lanjutkan" satu per satu.
-  const draftIds = Array.from(state.selectedIds).filter(id => {
-    const inv = state.invoices.find(i => i.id === id);
-    return inv && inv.status === 'Draft';
-  });
-  const ids = Array.from(state.selectedIds).filter(id => !draftIds.includes(id));
-  if (draftIds.length > 0) {
-    alert(`${draftIds.length} invoice berstatus Draft dilewati — selesaikan draft-nya dulu lewat tombol "Lanjutkan" sebelum mengubah status.`);
-  }
-  if (ids.length === 0) return;
-  const original = btn.innerHTML;
-  setBulkButtonsDisabled(true);
-  btn.innerHTML = spinner() + ' Menyimpan...';
-  try {
-    await Promise.all(ids.map(id => {
-      const inv = state.invoices.find(i => i.id === id);
-      if (!inv) return Promise.resolve();
-      const payload = {
-        invoice_no: inv.invoice_no, invoice_date: inv.invoice_date, due_date: inv.due_date || null,
-        customer_name: inv.customer_name, customer_address: inv.customer_address || '', attn: inv.attn || '',
-        currency: inv.currency, batch: inv.batch || '', remark: inv.remark || '', status,
-        exchange_rate: inv.exchange_rate || null,
-        items: (inv.items || []).map(it => ({ item_name: it.item_name, qty: it.qty, amount: it.amount }))
-      };
-      return api(`/api/invoices/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    }));
-    state.selectedIds.clear();
-    await refreshInvoices();
-  } catch (e) {
-    alert(e.message);
-    setBulkButtonsDisabled(false);
-    btn.innerHTML = original;
-  }
 }
 
 function setBulkButtonsDisabled(disabled) {
-  ['bulkPaid', 'bulkUnpaid', 'bulkApprove', 'bulkDelete', 'bulkClear'].forEach(id => {
+  ['bulkApprove', 'bulkDelete', 'bulkClear'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.disabled = disabled;
   });
@@ -545,20 +514,42 @@ async function handleImportFile(e) {
 }
 
 window.approveInvoice = async (id) => {
-  await api(`/api/invoices/${id}/approve`, { method: 'POST' });
-  refreshInvoices();
+  try {
+    await api(`/api/invoices/${id}/approve`, { method: 'POST' });
+    refreshInvoices();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+window.unapproveInvoice = async (id) => {
+  if (!confirm('Batalkan approval invoice ini? Statusnya akan kembali ke "Menunggu Approval" dan bisa diedit lagi.')) return;
+  try {
+    await api(`/api/invoices/${id}/unapprove`, { method: 'POST' });
+    refreshInvoices();
+  } catch (e) {
+    alert(e.message);
+  }
 };
 
 window.printInvoice = (id) => window.open(`/api/invoices/${id}/print`, '_blank');
 
 window.deleteInvoice = async (id) => {
   if (!confirm('Hapus invoice ini?')) return;
-  await api(`/api/invoices/${id}`, { method: 'DELETE' });
-  refreshInvoices();
+  try {
+    await api(`/api/invoices/${id}`, { method: 'DELETE' });
+    refreshInvoices();
+  } catch (e) {
+    alert(e.message);
+  }
 };
 
 window.editInvoice = async (id) => {
   const inv = await api(`/api/invoices/${id}`);
+  if (inv.approval_status === 'approved') {
+    alert('Invoice ini sudah disetujui Manager dan terkunci — tidak bisa diedit. Batalkan approval-nya dulu kalau perlu revisi.');
+    return;
+  }
   openForm(inv);
 };
 
@@ -940,15 +931,8 @@ function invoiceFormFieldsHtml(existing) {
           <label>Batch</label>
           <input id="f_batch" value="${existing ? (existing.batch || '') : ''}">
         </div>
-        <div class="form-group">
-          <label>Status <span class="sub" style="font-weight:400;font-size:11px">(pilih Draft untuk disimpan sementara, belum resmi)</span></label>
-          <select id="f_status">
-            <option value="Draft" ${existing && existing.status === 'Draft' ? 'selected' : ''}>Draft</option>
-            <option value="Belum Dibayar" ${(!existing || existing.status === 'Belum Dibayar') ? 'selected' : ''}>Belum Dibayar</option>
-            <option value="Sudah Dibayar" ${existing && existing.status === 'Sudah Dibayar' ? 'selected' : ''}>Sudah Dibayar</option>
-          </select>
-        </div>
       </div>
+      ${isEdit ? `<div class="sub" style="margin:-4px 0 14px;font-size:12px">Status saat ini: <strong>${existing.status === 'Draft' ? 'Draft' : (existing.approval_status === 'approved' ? 'Disetujui' : 'Menunggu Approval')}</strong> — klik "Simpan" untuk mengajukan/menyimpan perubahan, atau "Simpan sebagai Draft" untuk tetap jadi draft.</div>` : ''}
       <div class="form-row">
         <div class="form-group">
           <label>Exchange Rate <span id="exRateHint">(opsional, tampil di print jika bukan IDR)</span></label>
@@ -1109,7 +1093,6 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
         currency: currencySel.value,
         batch: root.querySelector('#f_batch').value,
         remark: root.querySelector('#f_remark').value,
-        status: root.querySelector('#f_status').value,
         exchange_rate: root.querySelector('#f_exrate').value ? Number(root.querySelector('#f_exrate').value) : null,
         items: items.filter(it => it.item_name.trim() !== '')
       };
@@ -1146,7 +1129,7 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
       currency: currencySel.value,
       batch: root.querySelector('#f_batch').value,
       remark: root.querySelector('#f_remark').value,
-      status: statusOverride || root.querySelector('#f_status').value,
+      status: statusOverride || 'Diajukan',
       exchange_rate: root.querySelector('#f_exrate').value ? Number(root.querySelector('#f_exrate').value) : null,
       items: items.filter(it => it.item_name.trim() !== '')
     };

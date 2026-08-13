@@ -14,11 +14,16 @@ create table if not exists invoices (
   currency text not null default 'IDR',
   batch text,
   remark text,
-  -- status: 'Draft' | 'Belum Dibayar' | 'Sudah Dibayar'
-  status text not null default 'Belum Dibayar',
+  -- status: 'Draft' (belum lengkap/belum diajukan) | 'Diajukan' (resmi, lengkap).
+  -- Menunggu-approval vs sudah-disetujui ditentukan lewat approval_status di bawah.
+  -- Tidak ada lagi field status pembayaran (Lunas/Belum Dibayar).
+  status text not null default 'Diajukan' check (status in ('Draft', 'Diajukan')),
   exchange_rate numeric,
   created_by text,
   created_by_role text,
+  -- approval_status 'approved': invoice resmi terbit, ttd manager otomatis muncul di print,
+  -- dan invoice TIDAK BISA diedit/dihapus lagi lewat API selama masih 'approved'
+  -- (lihat api/index.js) sampai di-"Batalkan Approval" dulu oleh manager.
   approval_status text not null default 'pending' check (approval_status in ('pending', 'approved')),
   approved_by text,
   approved_at timestamptz,
