@@ -27,6 +27,12 @@ function icon(name, extraClass) {
 }
 function spinner(extraClass) { return `<span class="spinner${extraClass ? ' ' + extraClass : ''}"></span>`; }
 
+// Format angka jadi "4.000.000" (pemisah ribuan gaya Indonesia), khusus bilangan bulat.
+function formatRibuan(n) {
+  const num = Math.round(Number(n) || 0);
+  return num.toLocaleString('id-ID');
+}
+
 /* ---------- Loading indicators (splash + top progress bar) ---------- */
 let activeRequests = 0;
 function showTopLoader() {
@@ -124,6 +130,7 @@ function renderShell() {
             <div class="brand-title">Invoice App</div>
             <div class="brand-sub">${(state.settings.company && state.settings.company.name) || 'Fuji Seat Indonesia'}</div>
           </div>
+          <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Tutup menu">${icon('x')}</button>
         </div>
         <nav class="sidebar-nav">
           <button class="nav-item ${state.view === 'invoices' ? 'active' : ''}" data-view="invoices" type="button" style="animation-delay:.02s">
@@ -168,6 +175,7 @@ function renderShell() {
 
   const layoutEl = document.getElementById('layout');
   document.getElementById('sidebarToggle').onclick = () => layoutEl.classList.toggle('sidebar-open');
+  document.getElementById('sidebarClose').onclick = () => layoutEl.classList.remove('sidebar-open');
   document.getElementById('sidebarBackdrop').onclick = () => layoutEl.classList.remove('sidebar-open');
 
   renderMain();
@@ -903,7 +911,7 @@ async function openForm(existing) {
       <tr>
         <td><input value="${it.item_name}" data-i="${i}" data-field="item_name"></td>
         <td><input type="number" step="any" value="${it.qty}" data-i="${i}" data-field="qty"></td>
-        <td><input type="number" step="any" value="${it.amount}" data-i="${i}" data-field="amount"></td>
+        <td><input type="text" inputmode="numeric" value="${it.amount ? formatRibuan(it.amount) : ''}" placeholder="0" data-i="${i}" data-field="amount"></td>
         <td><button class="btn-danger btn-icon" data-remove="${i}" type="button">${icon('x', 'icon-sm')}</button></td>
       </tr>
     `).join('');
@@ -911,7 +919,16 @@ async function openForm(existing) {
       inp.oninput = e => {
         const i = +e.target.dataset.i;
         const field = e.target.dataset.field;
-        items[i][field] = field === 'item_name' ? e.target.value : Number(e.target.value);
+        if (field === 'amount') {
+          const digits = e.target.value.replace(/[^\d]/g, '');
+          const num = digits ? parseInt(digits, 10) : 0;
+          items[i].amount = num;
+          e.target.value = digits ? formatRibuan(num) : '';
+          const pos = e.target.value.length;
+          e.target.setSelectionRange(pos, pos);
+        } else {
+          items[i][field] = field === 'item_name' ? e.target.value : Number(e.target.value);
+        }
         updateTotalsPreview();
       };
     });
