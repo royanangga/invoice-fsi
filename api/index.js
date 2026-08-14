@@ -275,8 +275,6 @@ app.post('/api/invoices', async (req, res) => {
     if (!isDraft && (!invoice_no || !invoice_date || !customer_name)) {
       return res.status(400).json({ error: 'invoice_no, invoice_date, customer_name wajib diisi' });
     }
-    const isManager = req.user.role === 'manager';
-    const nowIso = new Date().toISOString();
     // invoice_no kosong disimpan sebagai NULL (bukan string kosong) supaya beberapa
     // draft tanpa nomor tidak bentrok dengan constraint unique di kolom invoice_no.
     const { data: inv, error: invErr } = await supabase.from('invoices').insert({
@@ -289,9 +287,12 @@ app.post('/api/invoices', async (req, res) => {
       exchange_rate: exchange_rate || null,
       created_by: req.user.username,
       created_by_role: req.user.role,
-      approval_status: isManager ? 'approved' : 'pending',
-      approved_by: isManager ? req.user.username : null,
-      approved_at: isManager ? nowIso : null
+      // Semua invoice non-draft — termasuk buatan manager sendiri — wajib melalui menu
+      // Approval dulu (approval_status selalu 'pending' saat dibuat/diajukan). Tanda
+      // tangan cuma muncul setelah benar-benar di-approve lewat POST /:id/approve.
+      approval_status: 'pending',
+      approved_by: null,
+      approved_at: null
     }).select().single();
     if (invErr) {
       if (invErr.code === '23505') return res.status(400).json({ error: 'Nomor invoice sudah digunakan' });
@@ -323,8 +324,6 @@ app.put('/api/invoices/:id', async (req, res) => {
     if (current.approval_status === 'approved') {
       return res.status(403).json({ error: 'Invoice ini sudah disetujui Manager dan terkunci — tidak bisa diedit. Batalkan approval-nya dulu kalau perlu revisi.' });
     }
-    const isManager = req.user.role === 'manager';
-    const nowIso = new Date().toISOString();
     const { error: updErr } = await supabase.from('invoices').update({
       invoice_no: (invoice_no || '').trim() || null,
       invoice_date: invoice_date || null,
@@ -333,9 +332,11 @@ app.put('/api/invoices/:id', async (req, res) => {
       customer_address: customer_address || '', attn: attn || '', currency: currency || 'IDR',
       batch: batch || '', remark: remark || '', status: isDraft ? 'Draft' : 'Diajukan',
       exchange_rate: exchange_rate || null,
-      approval_status: isManager ? 'approved' : 'pending',
-      approved_by: isManager ? req.user.username : null,
-      approved_at: isManager ? nowIso : null
+      // Sama seperti saat dibuat: edit tidak pernah auto-approve, tetap 'pending'
+      // sampai benar-benar di-approve lewat menu Approval.
+      approval_status: 'pending',
+      approved_by: null,
+      approved_at: null
     }).eq('id', req.params.id);
     if (updErr) {
       if (updErr.code === '23505') return res.status(400).json({ error: 'Nomor invoice sudah digunakan' });
@@ -608,9 +609,7 @@ app.get('/api/invoices/:id/print', async (req, res) => {
 // ---------- Preview view (invoice belum tersimpan, dipakai panel Preview di form Tambah Invoice) ----------
 app.post('/api/invoices/preview', async (req, res) => {
   try {
-    const supabase = getSupabase();
     const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, exchange_rate, status } = req.body;
-    const isManager = req.user.role === 'manager';
     const inv = {
       invoice_no: invoice_no || null,
       invoice_date: invoice_date || null,
@@ -623,17 +622,14 @@ app.post('/api/invoices/preview', async (req, res) => {
       remark: remark || '',
       status: status === 'Draft' ? 'Draft' : 'Diajukan',
       exchange_rate: exchange_rate || null,
-      approval_status: isManager ? 'approved' : 'pending',
-      approved_by: isManager ? req.user.username : null,
+      // Preview adalah invoice yang BELUM tersimpan sama sekali, jadi tidak mungkin
+      // sudah di-approve — selalu 'pending' supaya TTD tidak muncul duluan di preview.
+      approval_status: 'pending',
+      approved_by: null,
       items: (items || []).map(it => ({ item_name: it.item_name, description: it.description || '', qty: it.qty || 1, amount: it.amount || 0 }))
     };
     const co = await getCompanySettings();
-    let approver = null;
-    if (isManager) {
-      const { data: u } = await supabase.from('users').select('name, title, signature').eq('id', req.user.sub).single();
-      approver = u || null;
-    }
-    res.send(buildInvoiceHtml(inv, co, approver));
+    res.send(buildInvoiceHtml(inv, co, null));
   } catch (e) {
     res.status(500).send('Error: ' + e.message);
   }

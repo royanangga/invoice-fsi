@@ -71,7 +71,7 @@ Menu ini hanya muncul dan hanya bisa diakses oleh akun dengan role **Manager**.
 **Perbedaan role:**
 - Staff & Manager punya akses yang sama untuk membuat, mengedit, mencetak, menghapus invoice, dan mengubah Pengaturan Perusahaan — **selama invoice itu belum disetujui Manager**.
 - Invoice yang dibuat **staff** berstatus **"Menunggu Approval"** — di hasil cetak/PDF-nya, kolom tanda tangan masih kosong (ada catatan "Menunggu persetujuan Manager").
-- Invoice buatan **manager** langsung otomatis "Disetujui".
+- Invoice buatan **manager** juga tetap berstatus **"Menunggu Approval"** dulu — tidak otomatis disetujui. Manager tetap perlu klik **Approve** di menu Approval (walaupun invoice itu buatannya sendiri) supaya tanda tangan muncul.
 - **Setelah disetujui, invoice terkunci total** — tidak bisa diedit maupun dihapus lagi oleh siapapun (staff maupun manager), lewat tombol di UI ataupun langsung ke API. Kalau ternyata ada kesalahan, **Manager** perlu klik **"Batalkan Approval"** dulu di menu **Approval** supaya statusnya kembali ke "Menunggu Approval" dan bisa direvisi, lalu di-approve ulang.
 - Invoice bisa disimpan dulu sebagai **Draft** (belum lengkap, belum diajukan) lewat tombol "Simpan sebagai Draft" di form — draft tidak butuh approval dan bisa dilanjutkan/diedit kapan saja sebelum diajukan resmi.
 
