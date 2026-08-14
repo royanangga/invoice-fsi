@@ -110,15 +110,16 @@ supabase-schema.sql       → skema database, jalankan sekali di Supabase SQL Ed
 add-draft-status.sql      → migrasi: fitur simpan invoice sebagai Draft (jalankan sekali kalau project sudah lama jalan)
 add-approval-lock.sql     → migrasi: hapus status pembayaran & kunci invoice yang sudah disetujui (jalankan sekali kalau project sudah lama jalan)
 add-manager-signature.sql → migrasi: tanda tangan pribadi per-manager (jalankan sekali kalau project sudah lama jalan)
+add-invoice-attachments.sql → migrasi: fitur lampiran invoice/upload dokumen pendukung (jalankan sekali kalau project sudah lama jalan)
 vercel.json               → konfigurasi routing Vercel
 .env.example               → contoh isi environment variables (untuk referensi Langkah 3)
 ```
 
 > Catatan: kalau Supabase project-mu **baru dibuat**, cukup jalankan `supabase-schema.sql`
 > saja (sudah termasuk semua kolom & aturan terbaru). Kalau project-mu **sudah pernah
-> jalan sebelumnya**, jalankan juga `add-draft-status.sql`, `add-approval-lock.sql`, lalu
-> `add-manager-signature.sql` secara berurutan di Supabase SQL Editor supaya tabel yang
-> sudah ada ikut ter-update.
+> jalan sebelumnya**, jalankan juga `add-draft-status.sql`, `add-approval-lock.sql`,
+> `add-manager-signature.sql`, lalu `add-invoice-attachments.sql` secara berurutan di
+> Supabase SQL Editor supaya tabel yang sudah ada ikut ter-update.
 
 
 > Catatan: `create-user.js` wajib dipakai satu kali di awal untuk membuat akun

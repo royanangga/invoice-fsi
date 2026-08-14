@@ -22,7 +22,8 @@ const ICONS = {
   trash: `<svg viewBox="0 0 24 24" class="icon"><path d="M4 6.5h16M9 6.5V4.3a1 1 0 011-1h4a1 1 0 011 1v2.2M6.5 6.5l.9 12.3a1.4 1.4 0 001.4 1.3h6.4a1.4 1.4 0 001.4-1.3l.9-12.3"/><path d="M10 10.5v6M14 10.5v6"/></svg>`,
   search: `<svg viewBox="0 0 24 24" class="icon"><circle cx="10.5" cy="10.5" r="6"/><path d="M19 19l-4.3-4.3"/></svg>`,
   chevron: `<svg viewBox="0 0 24 24" class="icon"><path d="M7 10l5 5 5-5"/></svg>`,
-  eye: `<svg viewBox="0 0 24 24" class="icon"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.6"/></svg>`
+  eye: `<svg viewBox="0 0 24 24" class="icon"><path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="2.6"/></svg>`,
+  paperclip: `<svg viewBox="0 0 24 24" class="icon"><path d="M7 12.5l6.5-6.5a3.2 3.2 0 014.5 4.5L10.5 18a5 5 0 01-7-7L11 3.5"/></svg>`
 };
 function icon(name, extraClass) {
   const svg = ICONS[name] || '';
@@ -337,6 +338,7 @@ function invoicesViewHtml() {
             </td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id})">${icon('eye', 'icon-sm')} Preview</button>
+              <button class="btn-secondary btn-icon" onclick="openAttachments(${inv.id})">${icon('paperclip', 'icon-sm')} Lampiran</button>
               ${!isApproved ? `<button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} ${isDraft ? 'Lanjutkan' : 'Edit'}</button>` : ''}
               ${!isApproved ? `<button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>` : ''}
             </td>
@@ -577,6 +579,7 @@ function approvalViewHtml() {
             <td>${inv.created_by || '-'}</td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id}, 'approval')">${icon('eye', 'icon-sm')} Preview</button>
+              <button class="btn-secondary btn-icon" onclick="openAttachments(${inv.id})">${icon('paperclip', 'icon-sm')} Lampiran</button>
               ${state.approvalTab === 'pending'
                 ? `<button class="btn-primary btn-icon" onclick="approveInvoice(${inv.id})">${icon('check', 'icon-sm')} Approve</button>`
                 : `<button class="btn-secondary btn-icon" onclick="unapproveInvoice(${inv.id})">${icon('x', 'icon-sm')} Batalkan Approval</button>`}
@@ -669,6 +672,96 @@ window.editInvoice = async (id) => {
     return;
   }
   openForm(inv);
+};
+
+/* ---------- Lampiran invoice (dokumen pendukung: PO, bukti transfer, kwitansi, dll) ---------- */
+function formatBytes(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+window.openAttachments = async (invId) => {
+  const cached = state.invoices.find(i => i.id === invId) || (state.approvalList || []).find(i => i.id === invId);
+  const inv = cached || await api(`/api/invoices/${invId}`);
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px">
+      <h2>${icon('paperclip', 'icon-lg')} Lampiran — ${inv.invoice_no || '(Belum diisi)'}</h2>
+      <div class="sub" style="margin:-6px 0 14px">Dokumen pendukung invoice ini (PO, bukti transfer, kwitansi, dll). PDF/JPG/PNG/Excel/Word, maks 10MB per file.</div>
+      <div id="attachListWrap"><div class="sub">Memuat...</div></div>
+      <input type="file" id="attachFileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx" style="display:none">
+      <div id="attachError" class="error-msg"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary btn-icon" id="btnAttachUpload" type="button">${icon('upload', 'icon-sm')} Tambah File</button>
+        <button class="btn-primary" id="btnAttachClose" type="button">Tutup</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  async function renderAttachList() {
+    const wrap = overlay.querySelector('#attachListWrap');
+    const list = await api(`/api/invoices/${invId}/attachments`);
+    if (list.length === 0) {
+      wrap.innerHTML = `<div class="empty-state" style="padding:24px">Belum ada lampiran.</div>`;
+      return;
+    }
+    wrap.innerHTML = `
+      <table class="list" style="margin-bottom:4px">
+        <thead><tr><th>Nama File</th><th>Ukuran</th><th>Diunggah</th><th></th></tr></thead>
+        <tbody>
+          ${list.map(a => `
+            <tr>
+              <td style="word-break:break-all">${a.filename}</td>
+              <td>${formatBytes(a.size)}</td>
+              <td>${a.uploaded_by || '-'}<br><span class="sub" style="font-size:11px">${new Date(a.created_at).toLocaleDateString('id-ID')}</span></td>
+              <td>
+                <button class="btn-secondary btn-icon" onclick="window.open('/api/attachments/${a.id}/download','_blank')">${icon('eye', 'icon-sm')} Lihat</button>
+                <button class="btn-danger btn-icon" data-del-attach="${a.id}">${icon('trash', 'icon-sm')} Hapus</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+    wrap.querySelectorAll('[data-del-attach]').forEach(btn => {
+      btn.onclick = async () => {
+        if (!confirm('Hapus lampiran ini?')) return;
+        btn.disabled = true;
+        try {
+          await api(`/api/attachments/${btn.dataset.delAttach}`, { method: 'DELETE' });
+          await renderAttachList();
+        } catch (e) {
+          overlay.querySelector('#attachError').textContent = e.message;
+          btn.disabled = false;
+        }
+      };
+    });
+  }
+
+  overlay.querySelector('#btnAttachClose').onclick = () => overlay.remove();
+  overlay.querySelector('#btnAttachUpload').onclick = () => overlay.querySelector('#attachFileInput').click();
+  overlay.querySelector('#attachFileInput').onchange = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+    const fd = new FormData();
+    files.forEach(f => fd.append('files', f));
+    const btn = overlay.querySelector('#btnAttachUpload');
+    const original = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = spinner() + ' Mengunggah...';
+    overlay.querySelector('#attachError').textContent = '';
+    try {
+      await api(`/api/invoices/${invId}/attachments`, { method: 'POST', body: fd });
+      await renderAttachList();
+    } catch (err) {
+      overlay.querySelector('#attachError').textContent = err.message;
+    } finally {
+      btn.disabled = false; btn.innerHTML = original;
+      e.target.value = '';
+    }
+  };
+
+  renderAttachList();
 };
 
 function debounce(fn, ms) {

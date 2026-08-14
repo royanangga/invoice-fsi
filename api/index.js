@@ -409,6 +409,94 @@ app.delete('/api/invoices/:id', async (req, res) => {
   }
 });
 
+// ---------- Lampiran invoice (dokumen pendukung: PO, bukti transfer, kwitansi, dll) ----------
+// Disimpan sebagai base64 langsung di tabel (bukan Supabase Storage) supaya konsisten
+// dengan pola penyimpanan file lain di app ini (logo & tanda tangan juga base64).
+const uploadAttachments = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter: (req, file, cb) => {
+    const allowed = [
+      'application/pdf', 'image/jpeg', 'image/png', 'image/webp',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel',
+      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    ];
+    if (allowed.includes(file.mimetype)) cb(null, true);
+    else cb(new Error(`Tipe file "${file.mimetype}" tidak didukung. Gunakan PDF, JPG, PNG, WEBP, Excel, atau Word.`));
+  }
+});
+// Dibungkus manual (bukan langsung dipasang sebagai middleware) supaya error dari
+// fileFilter/limit multer dikembalikan sebagai JSON rapi, bukan halaman error default Express.
+function handleAttachmentUpload(req, res, next) {
+  uploadAttachments.array('files', 5)(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message });
+    next();
+  });
+}
+
+app.get('/api/invoices/:id/attachments', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('invoice_attachments')
+      .select('id, filename, mimetype, size, uploaded_by, created_at')
+      .eq('invoice_id', req.params.id)
+      .order('created_at');
+    if (error) throw error;
+    res.json(data || []);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/invoices/:id/attachments', handleAttachmentUpload, async (req, res) => {
+  try {
+    const files = req.files || [];
+    if (files.length === 0) return res.status(400).json({ error: 'File tidak ditemukan' });
+    const supabase = getSupabase();
+    const { data: inv } = await supabase.from('invoices').select('id').eq('id', req.params.id).single();
+    if (!inv) return res.status(404).json({ error: 'Invoice tidak ditemukan' });
+    const rows = files.map(f => ({
+      invoice_id: req.params.id,
+      filename: f.originalname,
+      mimetype: f.mimetype,
+      size: f.size,
+      data: f.buffer.toString('base64'),
+      uploaded_by: req.user.username
+    }));
+    const { error } = await supabase.from('invoice_attachments').insert(rows);
+    if (error) throw error;
+    res.json({ ok: true, count: rows.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sengaja tanpa requireAuth tambahan (sudah tercakup app.use('/api', requireAuth) di atas).
+app.get('/api/attachments/:id/download', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.from('invoice_attachments').select('*').eq('id', req.params.id).single();
+    if (error || !data) return res.status(404).send('File tidak ditemukan');
+    const buf = Buffer.from(data.data, 'base64');
+    res.setHeader('Content-Type', data.mimetype || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(data.filename)}"`);
+    res.send(buf);
+  } catch (e) {
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
+app.delete('/api/attachments/:id', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const { error } = await supabase.from('invoice_attachments').delete().eq('id', req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ---------- Print / Preview HTML builder (dipakai oleh /print dan /preview) ----------
 const DEFAULT_COMPANY = {
   name: 'PT. FUJI SEAT INDONESIA', subtitle: '', address_line1: '', address_line2: '', phone: '',
