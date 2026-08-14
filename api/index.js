@@ -9,7 +9,9 @@ const { COOKIE_NAME, hashPassword, verifyPassword, signToken, requireAuth, requi
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-app.use(express.json({ limit: '4mb' }));
+// Limit dinaikkan dari 4mb supaya payload preview invoice baru (yang menyertakan lampiran
+// dalam bentuk base64 sebelum invoice tersimpan) tidak kepotong — lihat POST /api/invoices/preview.
+app.use(express.json({ limit: '20mb' }));
 app.use(cookieParser());
 
 const cookieOpts = {
@@ -244,15 +246,26 @@ app.get('/api/invoices/print-batch', async (req, res) => {
       const { data: users } = await supabase.from('users').select('username, name, title, signature').in('username', approvedUsernames);
       (users || []).forEach(u => { approverMap[u.username] = u; });
     }
+    // Lampiran tiap invoice ikut disertakan di halaman print batch — lihat buildBatchInvoiceHtml.
+    const { data: allAttachments } = await supabase.from('invoice_attachments')
+      .select('invoice_id, filename, mimetype, data')
+      .in('invoice_id', invoices.map(i => i.id))
+      .order('created_at');
+    const attachMap = {};
+    (allAttachments || []).forEach(a => {
+      (attachMap[a.invoice_id] = attachMap[a.invoice_id] || []).push(a);
+    });
     const entries = invoices.map(inv => ({
       inv,
-      approver: (inv.approval_status === 'approved' && inv.approved_by) ? (approverMap[inv.approved_by] || null) : null
+      approver: (inv.approval_status === 'approved' && inv.approved_by) ? (approverMap[inv.approved_by] || null) : null,
+      attachments: attachMap[inv.id] || []
     }));
     res.send(buildBatchInvoiceHtml(entries, co));
   } catch (e) {
     res.status(500).send('Error: ' + e.message);
   }
 });
+
 
 app.get('/api/invoices/:id', async (req, res) => {
   try {
@@ -572,6 +585,12 @@ function invoiceStyleTag() {
       @media screen {
         .print-page + .print-page { margin-top: 40px; padding-top: 40px; border-top: 3px dashed #ccc; }
       }
+      .attachment-page { display:flex; flex-direction:column; min-height: 250mm; font-family: Arial, sans-serif; }
+      .attach-page-label { font-size: 10.5pt; font-weight:bold; color:#333; padding-bottom:8px; margin-bottom:12px; border-bottom:1px solid #ccc; word-break:break-all; }
+      .attach-page-body { flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; }
+      .attach-page-body img { max-width:100%; max-height:250mm; object-fit:contain; }
+      .attach-page-body embed { width:100%; height:250mm; border:none; }
+      .attach-unsupported { text-align:center; font-size:10.5pt; color:#666; padding:40px 20px; }
     </style>`;
 }
 
@@ -668,18 +687,45 @@ function buildInvoiceBody(inv, co, approver) {
       </div>`;
 }
 
-function buildInvoiceHtml(inv, co, approver) {
+// ---------- Lampiran di halaman print/preview ----------
+// Gambar ditampilkan langsung sebagai halaman penuh, PDF disematkan lewat <embed> (biasanya
+// ikut tercetak di Chrome), tipe lain (Excel/Word) tidak bisa dirender di HTML sehingga
+// hanya ditampilkan sebagai halaman keterangan.
+function attachmentPageHtml(att) {
+  const mime = att.mimetype || '';
+  const safeName = (att.filename || 'Lampiran').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  let body;
+  if (mime.startsWith('image/')) {
+    body = `<img src="data:${mime};base64,${att.data}">`;
+  } else if (mime === 'application/pdf') {
+    body = `<embed src="data:${mime};base64,${att.data}" type="application/pdf">`;
+  } else {
+    body = `<div class="attach-unsupported">Jenis file ini (${mime || 'tidak dikenal'}) tidak bisa ditampilkan langsung di halaman cetak.<br>Buka lewat menu Lampiran pada invoice untuk melihat/download filenya.</div>`;
+  }
+  return `<div class="print-page attachment-page">
+    <div class="attach-page-label">LAMPIRAN — ${safeName}</div>
+    <div class="attach-page-body">${body}</div>
+  </div>`;
+}
+function attachmentsSectionHtml(attachments) {
+  return (attachments || []).map(attachmentPageHtml).join('');
+}
+
+function buildInvoiceHtml(inv, co, approver, attachments) {
     const invoiceNoDisplay = inv.invoice_no || '(Belum diisi)';
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceNoDisplay}</title>
     ${invoiceStyleTag()}</head><body>
-      ${buildInvoiceBody(inv, co, approver)}
+      <div class="print-page">${buildInvoiceBody(inv, co, approver)}</div>
+      ${attachmentsSectionHtml(attachments)}
       <button class="no-print" onclick="window.print()" style="margin-top:30px;padding:8px 16px;">Print / Save as PDF</button>
     </body></html>`;
 }
 
 // Cetak banyak invoice sekaligus dalam satu dokumen (satu dialog print, satu invoice per halaman)
 function buildBatchInvoiceHtml(entries, co) {
-  const pages = entries.map(({ inv, approver }) => `<div class="print-page">${buildInvoiceBody(inv, co, approver)}</div>`).join('');
+  const pages = entries.map(({ inv, approver, attachments }) =>
+    `<div class="print-page">${buildInvoiceBody(inv, co, approver)}</div>${attachmentsSectionHtml(attachments)}`
+  ).join('');
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Print ${entries.length} Invoice</title>
     ${invoiceStyleTag()}</head><body>
       ${pages}
@@ -699,7 +745,10 @@ app.get('/api/invoices/:id/print', async (req, res) => {
       const { data: u } = await supabase.from('users').select('name, title, signature').eq('username', inv.approved_by).single();
       approver = u || null;
     }
-    res.send(buildInvoiceHtml(inv, co, approver));
+    // Lampiran invoice selalu ikut disertakan di halaman print/preview (tidak ada opsi sembunyikan).
+    const { data: attachments } = await supabase.from('invoice_attachments')
+      .select('filename, mimetype, data').eq('invoice_id', req.params.id).order('created_at');
+    res.send(buildInvoiceHtml(inv, co, approver, attachments || []));
   } catch (e) {
     res.status(500).send('Error: ' + e.message);
   }
@@ -708,7 +757,7 @@ app.get('/api/invoices/:id/print', async (req, res) => {
 // ---------- Preview view (invoice belum tersimpan, dipakai panel Preview di form Tambah Invoice) ----------
 app.post('/api/invoices/preview', async (req, res) => {
   try {
-    const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, exchange_rate, status } = req.body;
+    const { invoice_no, invoice_date, due_date, customer_name, customer_address, attn, currency, batch, remark, items, exchange_rate, status, attachments } = req.body;
     const inv = {
       invoice_no: invoice_no || null,
       invoice_date: invoice_date || null,
@@ -728,7 +777,9 @@ app.post('/api/invoices/preview', async (req, res) => {
       items: (items || []).map(it => ({ item_name: it.item_name, description: it.description || '', qty: it.qty || 1, amount: it.amount || 0 }))
     };
     const co = await getCompanySettings();
-    res.send(buildInvoiceHtml(inv, co, null));
+    // Lampiran dikirim langsung dari browser sebagai base64 (belum ada invoice_id karena
+    // invoice belum tersimpan) — lihat pendingFiles di public/app.js.
+    res.send(buildInvoiceHtml(inv, co, null, attachments || []));
   } catch (e) {
     res.status(500).send('Error: ' + e.message);
   }

@@ -338,7 +338,6 @@ function invoicesViewHtml() {
             </td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id})">${icon('eye', 'icon-sm')} Preview</button>
-              <button class="btn-secondary btn-icon" onclick="openAttachments(${inv.id})">${icon('paperclip', 'icon-sm')} Lampiran</button>
               ${!isApproved ? `<button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} ${isDraft ? 'Lanjutkan' : 'Edit'}</button>` : ''}
               ${!isApproved ? `<button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>` : ''}
             </td>
@@ -679,6 +678,15 @@ function formatBytes(n) {
   if (n < 1024) return n + ' B';
   if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
   return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Gagal membaca file ' + file.name));
+    reader.readAsDataURL(file);
+  });
 }
 
 window.openAttachments = async (invId) => {
@@ -1537,6 +1545,13 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
       previewBtn.disabled = true;
       previewBtn.innerHTML = spinner() + ' Memuat...';
       try {
+        // Invoice baru belum tersimpan/punya id, jadi lampiran yang sudah dipilih (pendingFiles)
+        // dikirim langsung sebagai base64 supaya ikut tampil di preview juga.
+        payload.attachments = await Promise.all(pendingFiles.map(async f => ({
+          filename: f.name,
+          mimetype: f.type || 'application/octet-stream',
+          data: await fileToBase64(f)
+        })));
         const res = await fetch('/api/invoices/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const html = await res.text();
         openPreviewPanel('new');
