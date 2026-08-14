@@ -302,6 +302,7 @@ function invoicesViewHtml() {
     <div class="bulk-bar" id="bulkBar">
       <span class="bulk-count" id="bulkCount">0 dipilih</span>
       <div class="bulk-actions">
+        <button class="btn-secondary btn-icon" id="bulkPrint" type="button">${icon('print', 'icon-sm')} Print</button>
         <button class="btn-danger btn-icon" id="bulkDelete" type="button">${icon('trash', 'icon-sm')} Hapus</button>
         <button class="btn-secondary btn-icon" id="bulkClear" type="button">${icon('x', 'icon-sm')} Batalkan</button>
       </div>
@@ -312,20 +313,23 @@ function invoicesViewHtml() {
     <table class="list">
       <thead><tr>
         <th class="th-check"><input type="checkbox" id="checkAll" ${allChecked ? 'checked' : ''}></th>
-        <th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Remark</th><th>Total</th><th>Status</th><th></th>
+        <th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Total</th><th>Status</th><th></th>
       </tr></thead>
       <tbody>
         ${state.invoices.map((inv, i) => {
           const isDraft = inv.status === 'Draft';
           const isApproved = !isDraft && inv.approval_status === 'approved';
+          const hasValuta = inv.currency && inv.currency !== 'IDR' && inv.exchange_rate;
           return `
           <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s" class="${state.selectedIds.has(inv.id) ? 'row-selected' : ''}">
             <td class="td-check"><input type="checkbox" class="row-check" data-id="${inv.id}" ${state.selectedIds.has(inv.id) ? 'checked' : ''}></td>
             <td>${inv.invoice_no || '<span class="muted-cell">(belum diisi)</span>'}</td>
             <td>${inv.invoice_date || '-'}</td>
             <td>${inv.customer_name || '<span class="muted-cell">(belum diisi)</span>'}</td>
-            <td>${inv.remark || ''}</td>
-            <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
+            <td class="total-badge">
+              ${hasValuta ? `<div class="total-valuta">${fmt(inv.total / inv.exchange_rate, inv.currency)}</div>` : ''}
+              <div class="total-idr">${fmt(inv.total, 'IDR')}</div>
+            </td>
             <td>
               <span class="badge ${isApproved ? 'badge-paid' : isDraft ? 'badge-draft' : 'badge-unpaid'}">
                 ${isDraft ? 'Draft' : isApproved ? 'Disetujui' : 'Menunggu Approval'}
@@ -333,7 +337,6 @@ function invoicesViewHtml() {
             </td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id})">${icon('eye', 'icon-sm')} Preview</button>
-              ${!isDraft ? `<button class="btn-secondary btn-icon" onclick="printInvoice(${inv.id})">${icon('print', 'icon-sm')} Print</button>` : ''}
               ${!isApproved ? `<button class="btn-secondary btn-icon" onclick="editInvoice(${inv.id})">${icon('edit', 'icon-sm')} ${isDraft ? 'Lanjutkan' : 'Edit'}</button>` : ''}
               ${!isApproved ? `<button class="btn-danger btn-icon" onclick="deleteInvoice(${inv.id})">${icon('trash', 'icon-sm')} Hapus</button>` : ''}
             </td>
@@ -343,7 +346,7 @@ function invoicesViewHtml() {
     </table>
     </div>`}
     </div>
-    ${previewPanelHtml('list')}
+    ${previewPanelHtml('list', { showPrint: true })}
     </div>
   `;
 }
@@ -396,6 +399,22 @@ function wireBulkActions() {
   if (bulkClear) bulkClear.onclick = () => {
     state.selectedIds.clear();
     renderMain();
+  };
+
+  const bulkPrint = document.getElementById('bulkPrint');
+  if (bulkPrint) bulkPrint.onclick = () => {
+    // Draft belum resmi, tidak ikut dicetak lewat aksi massal ini.
+    const draftCount = Array.from(state.selectedIds).filter(id => {
+      const inv = state.invoices.find(i => i.id === id);
+      return inv && inv.status === 'Draft';
+    }).length;
+    const ids = Array.from(state.selectedIds).filter(id => {
+      const inv = state.invoices.find(i => i.id === id);
+      return inv && inv.status !== 'Draft';
+    });
+    if (draftCount > 0) alert(`${draftCount} invoice berstatus Draft dilewati — belum bisa dicetak.`);
+    if (ids.length === 0) return;
+    window.open(`/api/invoices/print-batch?ids=${ids.join(',')}`, '_blank');
   };
 
   const bulkDelete = document.getElementById('bulkDelete');
@@ -454,12 +473,16 @@ async function refreshInvoices() {
 function previewPlaceholderHtml() {
   return `<div class="preview-panel-placeholder">${icon('eye', 'icon-lg')}<p>Klik tombol Preview untuk melihat pratinjau invoice di sini.</p></div>`;
 }
-function previewPanelHtml(suffix) {
+function previewPanelHtml(suffix, opts) {
+  opts = opts || {};
   return `
     <div class="preview-panel" id="previewPanel_${suffix}">
       <div class="preview-panel-header">
         <h3>${icon('eye', 'icon-sm')} Preview Invoice</h3>
-        <button class="preview-close" id="previewClose_${suffix}" type="button" aria-label="Tutup preview">${icon('x', 'icon-sm')}</button>
+        <div class="preview-panel-header-actions">
+          ${opts.showPrint ? `<button class="btn-secondary btn-icon" id="previewPrint_${suffix}" type="button" style="display:none">${icon('print', 'icon-sm')} Print</button>` : ''}
+          <button class="preview-close" id="previewClose_${suffix}" type="button" aria-label="Tutup preview">${icon('x', 'icon-sm')}</button>
+        </div>
       </div>
       <div class="preview-panel-body" id="previewBody_${suffix}">${previewPlaceholderHtml()}</div>
     </div>
@@ -479,6 +502,8 @@ function closePreviewPanel(suffix) {
   panel.classList.remove('is-open');
   const body = document.getElementById(`previewBody_${suffix}`);
   if (body) body.innerHTML = previewPlaceholderHtml();
+  const printBtn = document.getElementById(`previewPrint_${suffix}`);
+  if (printBtn) printBtn.style.display = 'none';
 }
 // Preview invoice yang sudah tersimpan (dipakai dari tabel Daftar Invoice & Approval) — langsung load via iframe.
 window.previewInvoiceRow = (id, suffix) => {
@@ -487,6 +512,11 @@ window.previewInvoiceRow = (id, suffix) => {
   const body = document.getElementById(`previewBody_${suffix}`);
   if (!body) return;
   body.innerHTML = `<div class="preview-loading">${spinner('spinner-lg')}</div><iframe title="Preview Invoice" src="/api/invoices/${id}/print" onload="this.previousElementSibling && this.previousElementSibling.remove()"></iframe>`;
+  const printBtn = document.getElementById(`previewPrint_${suffix}`);
+  if (printBtn) {
+    printBtn.style.display = '';
+    printBtn.onclick = () => printInvoice(id);
+  }
 };
 
 async function updateApprovalBadge() {
@@ -533,12 +563,17 @@ function approvalViewHtml() {
         <th>No. Invoice</th><th>Tanggal</th><th>Customer</th><th>Total</th><th>Dibuat oleh</th><th></th>
       </tr></thead>
       <tbody>
-        ${state.approvalList.map((inv, i) => `
+        ${state.approvalList.map((inv, i) => {
+          const hasValuta = inv.currency && inv.currency !== 'IDR' && inv.exchange_rate;
+          return `
           <tr style="animation-delay:${Math.min(i * 0.03, 0.5)}s">
             <td>${inv.invoice_no || '-'}</td>
             <td>${inv.invoice_date || '-'}</td>
             <td>${inv.customer_name || '-'}</td>
-            <td class="total-badge">${fmt(inv.total, inv.currency)}</td>
+            <td class="total-badge">
+              ${hasValuta ? `<div class="total-valuta">${fmt(inv.total / inv.exchange_rate, inv.currency)}</div>` : ''}
+              <div class="total-idr">${fmt(inv.total, 'IDR')}</div>
+            </td>
             <td>${inv.created_by || '-'}</td>
             <td>
               <button class="btn-secondary btn-icon" onclick="previewInvoiceRow(${inv.id}, 'approval')">${icon('eye', 'icon-sm')} Preview</button>
@@ -547,12 +582,12 @@ function approvalViewHtml() {
                 : `<button class="btn-secondary btn-icon" onclick="unapproveInvoice(${inv.id})">${icon('x', 'icon-sm')} Batalkan Approval</button>`}
             </td>
           </tr>
-        `).join('')}
+        `; }).join('')}
       </tbody>
     </table>
     </div>`}
     </div>
-    ${previewPanelHtml('approval')}
+    ${previewPanelHtml('approval', { showPrint: true })}
     </div>
   `;
 }

@@ -224,6 +224,36 @@ app.get('/api/invoices', async (req, res) => {
   }
 });
 
+// ---------- Bulk print (dipilih dari Daftar Invoice) — satu dokumen, satu invoice per halaman.
+// Didaftarkan SEBELUM /api/invoices/:id supaya "print-batch" tidak ketangkap sebagai :id.
+app.get('/api/invoices/print-batch', async (req, res) => {
+  try {
+    const supabase = getSupabase();
+    const ids = (req.query.ids || '').toString().split(',').map(s => s.trim()).filter(Boolean);
+    if (ids.length === 0) return res.status(400).send('Tidak ada invoice dipilih');
+    const { data: invoices, error } = await supabase.from('invoices').select('*, items:invoice_items(*)').in('id', ids);
+    if (error) throw error;
+    if (!invoices || invoices.length === 0) return res.status(404).send('Invoice tidak ditemukan');
+    // Urutkan sesuai urutan ids yang dipilih di UI
+    const order = new Map(ids.map((id, i) => [String(id), i]));
+    invoices.sort((a, b) => (order.get(String(a.id)) ?? 0) - (order.get(String(b.id)) ?? 0));
+    const co = await getCompanySettings();
+    const approvedUsernames = [...new Set(invoices.filter(i => i.approval_status === 'approved' && i.approved_by).map(i => i.approved_by))];
+    let approverMap = {};
+    if (approvedUsernames.length > 0) {
+      const { data: users } = await supabase.from('users').select('username, name, title, signature').in('username', approvedUsernames);
+      (users || []).forEach(u => { approverMap[u.username] = u; });
+    }
+    const entries = invoices.map(inv => ({
+      inv,
+      approver: (inv.approval_status === 'approved' && inv.approved_by) ? (approverMap[inv.approved_by] || null) : null
+    }));
+    res.send(buildBatchInvoiceHtml(entries, co));
+  } catch (e) {
+    res.status(500).send('Error: ' + e.message);
+  }
+});
+
 app.get('/api/invoices/:id', async (req, res) => {
   try {
     const supabase = getSupabase();
@@ -390,38 +420,8 @@ async function getCompanySettings() {
   return companyRow ? companyRow.value : DEFAULT_COMPANY;
 }
 
-function buildInvoiceHtml(inv, co, approver) {
-    const items = inv.items || [];
-    const total = items.reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
-    const isDraft = inv.status === 'Draft';
-    const invoiceNoDisplay = inv.invoice_no || '(Belum diisi)';
-    const customerDisplay = inv.customer_name || '(Belum diisi)';
-    const isIDR = inv.currency === 'IDR';
-    // Invoice mata uang asing (reimbursement ke perusahaan luar negeri): jumlah selalu
-    // dimasukkan dalam IDR, lalu nominal valuta dihitung otomatis dari Exchange Rate.
-    const hasValuta = !isIDR && !!inv.exchange_rate;
-    const totalValuta = hasValuta ? total / inv.exchange_rate : null;
-
-    const rows = items.map((it, i) => {
-      const lineIdr = it.amount * (it.qty || 1);
-      const valutaCell = hasValuta
-        ? `<td class="c-amt">${numFmtValuta(lineIdr / inv.exchange_rate, inv.currency)}</td>`
-        : '';
-      return `
-      <tr>
-        <td class="c-no">${i + 1}</td>
-        <td class="c-item">${it.item_name}</td>
-        <td class="c-qty">${it.qty || ''}</td>
-        <td class="c-amt">${numFmt(lineIdr)}</td>
-        ${valutaCell}
-      </tr>`;
-    }).join('');
-
-    const exRateLine = (!isIDR && inv.exchange_rate) ? `
-      <div class="ex-rate"><span>Exchange Rate :</span><strong>${Number(inv.exchange_rate).toLocaleString('en-US')}</strong></div>` : '';
-
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceNoDisplay}</title>
-    <style>
+function invoiceStyleTag() {
+  return `<style>
       @page { size: A4; margin: 18mm 15mm; }
       * { box-sizing: border-box; }
       body { font-family: "Times New Roman", Times, serif; font-size: 11pt; color: #000; margin:0; padding: 0; }
@@ -458,15 +458,53 @@ function buildInvoiceHtml(inv, co, approver) {
       .footer { display:flex; justify-content:space-between; margin-top: 50px; }
       .footer .bank-block { font-size: 10pt; }
       .footer .bank-block .co-repeat { font-size: 11pt; font-weight:bold; margin-bottom:4px; }
-      .footer .sig-block { text-align:center; font-size: 11pt; }
+      .footer .sig-block { text-align:center; font-size: 11pt; min-width: 260px; }
       .footer .sig-issuer { font-weight:bold; margin-bottom: 6px; }
-      .footer .sig-img-wrap { height:52px; display:flex; align-items:center; justify-content:center; margin-bottom:2px; }
-      .footer .sig-img-wrap img { max-height:52px; max-width:170px; object-fit:contain; }
-      .footer .sig-name { font-weight:bold; border-top: 1px solid #000; padding-top:4px; display:inline-block; min-width:180px; }
+      .footer .sig-img-wrap { height:58px; display:flex; align-items:center; justify-content:center; margin-bottom:2px; }
+      .footer .sig-img-wrap img { max-height:58px; max-width:250px; object-fit:contain; }
+      .footer .sig-name { font-weight:bold; border-top: 1px solid #000; padding-top:4px; display:inline-block; min-width:260px; }
       .footer .sig-title { font-weight:bold; }
       @media print { .no-print { display:none; } }
       .draft-watermark { margin: 0 0 14px; padding: 8px 14px; border: 1px solid #b8860b; color: #8a6300; background:#fff8e1; font-family: Arial, sans-serif; font-size: 10.5pt; font-weight: bold; text-align:center; }
-    </style></head><body>
+      .print-page { page-break-after: always; }
+      .print-page:last-child { page-break-after: auto; }
+      @media screen {
+        .print-page + .print-page { margin-top: 40px; padding-top: 40px; border-top: 3px dashed #ccc; }
+      }
+    </style>`;
+}
+
+function buildInvoiceBody(inv, co, approver) {
+    const items = inv.items || [];
+    const total = items.reduce((s, it) => s + (it.amount * (it.qty || 1)), 0);
+    const isDraft = inv.status === 'Draft';
+    const invoiceNoDisplay = inv.invoice_no || '(Belum diisi)';
+    const customerDisplay = inv.customer_name || '(Belum diisi)';
+    const isIDR = inv.currency === 'IDR';
+    // Invoice mata uang asing (reimbursement ke perusahaan luar negeri): jumlah selalu
+    // dimasukkan dalam IDR, lalu nominal valuta dihitung otomatis dari Exchange Rate.
+    const hasValuta = !isIDR && !!inv.exchange_rate;
+    const totalValuta = hasValuta ? total / inv.exchange_rate : null;
+
+    const rows = items.map((it, i) => {
+      const lineIdr = it.amount * (it.qty || 1);
+      const valutaCell = hasValuta
+        ? `<td class="c-amt">${numFmtValuta(lineIdr / inv.exchange_rate, inv.currency)}</td>`
+        : '';
+      return `
+      <tr>
+        <td class="c-no">${i + 1}</td>
+        <td class="c-item">${it.item_name}</td>
+        <td class="c-qty">${it.qty || ''}</td>
+        <td class="c-amt">${numFmt(lineIdr)}</td>
+        ${valutaCell}
+      </tr>`;
+    }).join('');
+
+    const exRateLine = (!isIDR && inv.exchange_rate) ? `
+      <div class="ex-rate"><span>Exchange Rate :</span><strong>${Number(inv.exchange_rate).toLocaleString('en-US')}</strong></div>` : '';
+
+    return `
       ${isDraft ? `<div class="draft-watermark">DRAFT — Invoice ini belum resmi, masih bisa diubah dari menu Daftar Invoice.</div>` : ''}
       <div class="co-header">
         ${co.logo ? `<img class="co-logo" src="${co.logo}">` : ''}
@@ -526,8 +564,25 @@ function buildInvoiceHtml(inv, co, approver) {
           <div class="sig-img-wrap" style="height:59px;font-size:9pt;color:#999;font-family:Arial,sans-serif;">( ${isDraft ? 'Draft — belum diajukan' : 'Menunggu persetujuan Manager'} )</div>
           <div class="sig-title" style="visibility:hidden">-</div>`}
         </div>
-      </div>
+      </div>`;
+}
+
+function buildInvoiceHtml(inv, co, approver) {
+    const invoiceNoDisplay = inv.invoice_no || '(Belum diisi)';
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${invoiceNoDisplay}</title>
+    ${invoiceStyleTag()}</head><body>
+      ${buildInvoiceBody(inv, co, approver)}
       <button class="no-print" onclick="window.print()" style="margin-top:30px;padding:8px 16px;">Print / Save as PDF</button>
+    </body></html>`;
+}
+
+// Cetak banyak invoice sekaligus dalam satu dokumen (satu dialog print, satu invoice per halaman)
+function buildBatchInvoiceHtml(entries, co) {
+  const pages = entries.map(({ inv, approver }) => `<div class="print-page">${buildInvoiceBody(inv, co, approver)}</div>`).join('');
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Print ${entries.length} Invoice</title>
+    ${invoiceStyleTag()}</head><body>
+      ${pages}
+      <button class="no-print" onclick="window.print()" style="margin:20px 0;padding:8px 16px;">Print / Save as PDF (${entries.length} invoice)</button>
     </body></html>`;
 }
 
