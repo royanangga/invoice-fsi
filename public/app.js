@@ -1156,13 +1156,20 @@ function invoiceFormFieldsHtml(existing) {
       </div>
       <div class="sub" id="valutaHint" style="display:none;margin:-8px 0 14px;color:var(--muted);font-size:12px">Kolom "Jumlah" pada Item selalu diisi dalam IDR. Amount dalam mata uang asing akan dihitung otomatis saat dicetak: <strong>IDR ÷ Exchange Rate</strong>.</div>
       <div class="form-group" style="margin-bottom:12px">
-        <label>Remark</label>
-        <textarea id="f_remark" rows="2">${existing ? (existing.remark || '') : ''}</textarea>
+        <label>Remark <span class="sub" style="font-weight:400;font-size:11px">(judul singkat, deskripsi detail ada di masing-masing Item)</span></label>
+        <input id="f_remark" value="${existing ? (existing.remark || '') : ''}">
       </div>
 
       <label style="font-size:12px;color:var(--muted);font-weight:600">Item</label>
       <table class="items-table" id="itemsTable">
-        <thead><tr><th style="width:50%">Nama Item</th><th style="width:15%">Qty</th><th style="width:25%">Jumlah (IDR)</th><th></th></tr></thead>
+        <thead><tr>
+          <th style="width:18%">Nama Item</th>
+          <th style="width:28%">Deskripsi</th>
+          <th style="width:8%">Qty</th>
+          <th style="width:18%">Jumlah (IDR)</th>
+          <th style="width:16%">Valuta</th>
+          <th></th>
+        </tr></thead>
         <tbody id="itemsBody"></tbody>
       </table>
       <button class="btn-secondary btn-icon" id="btnAddItem" type="button">${icon('plus', 'icon-sm')} Tambah Item</button>
@@ -1182,24 +1189,41 @@ function invoiceFormFieldsHtml(existing) {
 // `root` bisa berupa modal overlay (Edit) ataupun elemen halaman penuh (Tambah Invoice Baru).
 function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
   const isEdit = !!existing;
-  let items = existing ? existing.items.map(it => ({ ...it })) : [{ item_name: '', qty: 1, amount: 0 }];
+  let items = existing ? existing.items.map(it => ({ ...it })) : [{ item_name: '', description: '', qty: 1, amount: 0 }];
 
   const customerSel = root.querySelector('#f_customer');
   const currencySel = root.querySelector('#f_currency');
   const attnInput = root.querySelector('#f_attn');
   const exRateInput = root.querySelector('#f_exrate');
 
+  function itemValutaText(it) {
+    const isIDR = currencySel.value === 'IDR';
+    const rate = Number(exRateInput.value) || 0;
+    if (isIDR || rate <= 0) return '-';
+    const lineIdr = (Number(it.amount) || 0) * (Number(it.qty) || 1);
+    const digits = currencySel.value === 'JPY' ? 0 : 2;
+    return `${currencySel.value} ${(lineIdr / rate).toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+  }
+
+  function updateValutaCells() {
+    root.querySelectorAll('.item-valuta-cell').forEach((cell, i) => {
+      if (items[i]) cell.textContent = itemValutaText(items[i]);
+    });
+  }
+
   function renderItems() {
     const body = root.querySelector('#itemsBody');
     body.innerHTML = items.map((it, i) => `
       <tr>
         <td><input value="${it.item_name}" data-i="${i}" data-field="item_name"></td>
+        <td><textarea rows="1" class="item-desc-input" placeholder="Deskripsi detail item (opsional)" data-i="${i}" data-field="description">${it.description || ''}</textarea></td>
         <td><input type="number" step="any" value="${it.qty}" data-i="${i}" data-field="qty"></td>
         <td><input type="text" inputmode="numeric" value="${it.amount ? formatRibuan(it.amount) : ''}" placeholder="0" data-i="${i}" data-field="amount"></td>
+        <td class="item-valuta-cell">${itemValutaText(it)}</td>
         <td><button class="btn-danger btn-icon" data-remove="${i}" type="button">${icon('x', 'icon-sm')}</button></td>
       </tr>
     `).join('');
-    body.querySelectorAll('input').forEach(inp => {
+    body.querySelectorAll('input, textarea').forEach(inp => {
       inp.oninput = e => {
         const i = +e.target.dataset.i;
         const field = e.target.dataset.field;
@@ -1210,9 +1234,12 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
           e.target.value = digits ? formatRibuan(num) : '';
           const pos = e.target.value.length;
           e.target.setSelectionRange(pos, pos);
+        } else if (field === 'item_name' || field === 'description') {
+          items[i][field] = e.target.value;
         } else {
-          items[i][field] = field === 'item_name' ? e.target.value : Number(e.target.value);
+          items[i][field] = Number(e.target.value);
         }
+        updateValutaCells();
         updateTotalsPreview();
       };
     });
@@ -1228,6 +1255,7 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
     const isIDR = currencySel.value === 'IDR';
     root.querySelector('#exRateHint').textContent = isIDR ? '(opsional)' : '(wajib diisi untuk mata uang selain IDR)';
     root.querySelector('#valutaHint').style.display = isIDR ? 'none' : 'block';
+    updateValutaCells();
     updateTotalsPreview();
   }
 
@@ -1250,7 +1278,7 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
 
   renderItems();
 
-  root.querySelector('#btnAddItem').onclick = () => { items.push({ item_name: '', qty: 1, amount: 0 }); renderItems(); };
+  root.querySelector('#btnAddItem').onclick = () => { items.push({ item_name: '', description: '', qty: 1, amount: 0 }); renderItems(); };
 
   customerSel.onchange = () => {
     const opt = customerSel.selectedOptions[0];
@@ -1259,7 +1287,7 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
     updateCurrencyUI();
   };
   currencySel.onchange = updateCurrencyUI;
-  exRateInput.oninput = updateTotalsPreview;
+  exRateInput.oninput = () => { updateValutaCells(); updateTotalsPreview(); };
   updateCurrencyUI();
 
   const dateInput = root.querySelector('#f_date');

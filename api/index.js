@@ -297,7 +297,7 @@ app.post('/api/invoices', async (req, res) => {
       if (invErr.code === '23505') return res.status(400).json({ error: 'Nomor invoice sudah digunakan' });
       throw invErr;
     }
-    const itemRows = (items || []).map(it => ({ invoice_id: inv.id, item_name: it.item_name, qty: it.qty || 1, amount: it.amount || 0 }));
+    const itemRows = (items || []).map(it => ({ invoice_id: inv.id, item_name: it.item_name, description: it.description || null, qty: it.qty || 1, amount: it.amount || 0 }));
     if (itemRows.length) {
       const { error: itemErr } = await supabase.from('invoice_items').insert(itemRows);
       if (itemErr) throw itemErr;
@@ -342,7 +342,7 @@ app.put('/api/invoices/:id', async (req, res) => {
       throw updErr;
     }
     await supabase.from('invoice_items').delete().eq('invoice_id', req.params.id);
-    const itemRows = (items || []).map(it => ({ invoice_id: req.params.id, item_name: it.item_name, qty: it.qty || 1, amount: it.amount || 0 }));
+    const itemRows = (items || []).map(it => ({ invoice_id: req.params.id, item_name: it.item_name, description: it.description || null, qty: it.qty || 1, amount: it.amount || 0 }));
     if (itemRows.length) {
       const { error: itemErr } = await supabase.from('invoice_items').insert(itemRows);
       if (itemErr) throw itemErr;
@@ -446,6 +446,7 @@ function invoiceStyleTag() {
       table.items td { padding: 4px 6px; font-size: 11pt; }
       .c-no { text-align:center; width: 5%; }
       .c-item { text-align:left; width: 55%; }
+      .c-item-desc { font-size:9.5pt; font-weight:normal; color:#333; margin-top:2px; white-space:pre-line; }
       .c-qty { text-align:center; width: 15%; }
       .c-amt { text-align:right; width: 25%; }
       table.items.dual-amt .c-item { width: 40%; }
@@ -494,7 +495,7 @@ function buildInvoiceBody(inv, co, approver) {
       return `
       <tr>
         <td class="c-no">${i + 1}</td>
-        <td class="c-item">${it.item_name}</td>
+        <td class="c-item">${it.item_name}${it.description ? `<div class="c-item-desc">${it.description}</div>` : ''}</td>
         <td class="c-qty">${it.qty || ''}</td>
         <td class="c-amt">${numFmt(lineIdr)}</td>
         ${valutaCell}
@@ -624,7 +625,7 @@ app.post('/api/invoices/preview', async (req, res) => {
       exchange_rate: exchange_rate || null,
       approval_status: isManager ? 'approved' : 'pending',
       approved_by: isManager ? req.user.username : null,
-      items: (items || []).map(it => ({ item_name: it.item_name, qty: it.qty || 1, amount: it.amount || 0 }))
+      items: (items || []).map(it => ({ item_name: it.item_name, description: it.description || '', qty: it.qty || 1, amount: it.amount || 0 }))
     };
     const co = await getCompanySettings();
     let approver = null;

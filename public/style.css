@@ -332,6 +332,8 @@ table.list tr:hover .badge { transform: scale(1.06); }
 .items-table td { padding:4px; }
 .items-table input, .items-table select { width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:5px; font-size:12px; font-family:inherit; }
 .items-table input[data-field="amount"] { text-align:right; }
+.items-table textarea.item-desc-input { width:100%; min-height:32px; padding:6px 8px; border:1px solid var(--border); border-radius:5px; font-size:12px; font-family:inherit; resize:vertical; }
+.item-valuta-cell { font-size:12px; color:var(--muted); white-space:nowrap; text-align:right; padding-right:8px; }
 
 .modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:16px; }
 .empty-state { text-align:center; padding:60px 20px; color:var(--muted); }

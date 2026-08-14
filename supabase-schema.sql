@@ -34,6 +34,7 @@ create table if not exists invoice_items (
   id bigint generated always as identity primary key,
   invoice_id bigint not null references invoices(id) on delete cascade,
   item_name text not null,
+  description text,
   qty numeric default 1,
   amount numeric not null default 0
 );
