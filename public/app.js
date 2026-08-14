@@ -684,17 +684,20 @@ function formatBytes(n) {
 window.openAttachments = async (invId) => {
   const cached = state.invoices.find(i => i.id === invId) || (state.approvalList || []).find(i => i.id === invId);
   const inv = cached || await api(`/api/invoices/${invId}`);
+  const isLocked = inv.status !== 'Draft' && inv.approval_status === 'approved';
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
     <div class="modal" style="max-width:560px">
       <h2>${icon('paperclip', 'icon-lg')} Lampiran — ${inv.invoice_no || '(Belum diisi)'}</h2>
-      <div class="sub" style="margin:-6px 0 14px">Dokumen pendukung invoice ini (PO, bukti transfer, kwitansi, dll). PDF/JPG/PNG/Excel/Word, maks 10MB per file.</div>
+      ${isLocked
+        ? `<div class="sub" style="margin:-6px 0 14px;color:var(--danger)">Invoice ini sudah disetujui Manager dan terkunci — lampiran hanya bisa dilihat. Batalkan approval-nya dulu di menu Approval kalau perlu menambah/menghapus lampiran.</div>`
+        : `<div class="sub" style="margin:-6px 0 14px">Dokumen pendukung invoice ini (PO, bukti transfer, kwitansi, dll). PDF/JPG/PNG/Excel/Word, maks 10MB per file.</div>`}
       <div id="attachListWrap"><div class="sub">Memuat...</div></div>
-      <input type="file" id="attachFileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx" style="display:none">
+      ${isLocked ? '' : `<input type="file" id="attachFileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx" style="display:none">`}
       <div id="attachError" class="error-msg"></div>
       <div class="modal-actions">
-        <button class="btn-secondary btn-icon" id="btnAttachUpload" type="button">${icon('upload', 'icon-sm')} Tambah File</button>
+        ${isLocked ? '' : `<button class="btn-secondary btn-icon" id="btnAttachUpload" type="button">${icon('upload', 'icon-sm')} Tambah File</button>`}
         <button class="btn-primary" id="btnAttachClose" type="button">Tutup</button>
       </div>
     </div>
@@ -719,47 +722,52 @@ window.openAttachments = async (invId) => {
               <td>${a.uploaded_by || '-'}<br><span class="sub" style="font-size:11px">${new Date(a.created_at).toLocaleDateString('id-ID')}</span></td>
               <td>
                 <button class="btn-secondary btn-icon" onclick="window.open('/api/attachments/${a.id}/download','_blank')">${icon('eye', 'icon-sm')} Lihat</button>
-                <button class="btn-danger btn-icon" data-del-attach="${a.id}">${icon('trash', 'icon-sm')} Hapus</button>
+                ${isLocked ? '' : `<button class="btn-danger btn-icon" data-del-attach="${a.id}">${icon('trash', 'icon-sm')} Hapus</button>`}
               </td>
             </tr>`).join('')}
         </tbody>
       </table>`;
-    wrap.querySelectorAll('[data-del-attach]').forEach(btn => {
-      btn.onclick = async () => {
-        if (!confirm('Hapus lampiran ini?')) return;
-        btn.disabled = true;
-        try {
-          await api(`/api/attachments/${btn.dataset.delAttach}`, { method: 'DELETE' });
-          await renderAttachList();
-        } catch (e) {
-          overlay.querySelector('#attachError').textContent = e.message;
-          btn.disabled = false;
-        }
-      };
-    });
+    if (!isLocked) {
+      wrap.querySelectorAll('[data-del-attach]').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Hapus lampiran ini?')) return;
+          btn.disabled = true;
+          try {
+            await api(`/api/attachments/${btn.dataset.delAttach}`, { method: 'DELETE' });
+            await renderAttachList();
+          } catch (e) {
+            overlay.querySelector('#attachError').textContent = e.message;
+            btn.disabled = false;
+          }
+        };
+      });
+    }
   }
 
   overlay.querySelector('#btnAttachClose').onclick = () => overlay.remove();
-  overlay.querySelector('#btnAttachUpload').onclick = () => overlay.querySelector('#attachFileInput').click();
-  overlay.querySelector('#attachFileInput').onchange = async (e) => {
-    const files = Array.from(e.target.files);
-    if (files.length === 0) return;
-    const fd = new FormData();
-    files.forEach(f => fd.append('files', f));
-    const btn = overlay.querySelector('#btnAttachUpload');
-    const original = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = spinner() + ' Mengunggah...';
-    overlay.querySelector('#attachError').textContent = '';
-    try {
-      await api(`/api/invoices/${invId}/attachments`, { method: 'POST', body: fd });
-      await renderAttachList();
-    } catch (err) {
-      overlay.querySelector('#attachError').textContent = err.message;
-    } finally {
-      btn.disabled = false; btn.innerHTML = original;
-      e.target.value = '';
-    }
-  };
+
+  if (!isLocked) {
+    overlay.querySelector('#btnAttachUpload').onclick = () => overlay.querySelector('#attachFileInput').click();
+    overlay.querySelector('#attachFileInput').onchange = async (e) => {
+      const files = Array.from(e.target.files);
+      if (files.length === 0) return;
+      const fd = new FormData();
+      files.forEach(f => fd.append('files', f));
+      const btn = overlay.querySelector('#btnAttachUpload');
+      const original = btn.innerHTML;
+      btn.disabled = true; btn.innerHTML = spinner() + ' Mengunggah...';
+      overlay.querySelector('#attachError').textContent = '';
+      try {
+        await api(`/api/invoices/${invId}/attachments`, { method: 'POST', body: fd });
+        await renderAttachList();
+      } catch (err) {
+        overlay.querySelector('#attachError').textContent = err.message;
+      } finally {
+        btn.disabled = false; btn.innerHTML = original;
+        e.target.value = '';
+      }
+    };
+  }
 
   renderAttachList();
 };
@@ -1268,6 +1276,13 @@ function invoiceFormFieldsHtml(existing) {
       <button class="btn-secondary btn-icon" id="btnAddItem" type="button">${icon('plus', 'icon-sm')} Tambah Item</button>
       <div id="totalsPreview" class="sub" style="margin-top:10px;font-size:12.5px;color:var(--navy);font-weight:600"></div>
 
+      <div class="form-group" style="margin-top:16px">
+        <label style="font-size:12px;color:var(--muted);font-weight:600">Lampiran <span style="font-weight:400">(dokumen pendukung: PO, bukti transfer, kwitansi, dll — PDF/JPG/PNG/Excel/Word, maks 10MB/file)</span></label>
+        <div id="attachListWrap" style="margin:8px 0"></div>
+        <input type="file" id="attachFileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx" style="display:none">
+        <button class="btn-secondary btn-icon" id="btnAttachAdd" type="button">${icon('paperclip', 'icon-sm')} Tambah Lampiran</button>
+      </div>
+
       <div id="formError" class="error-msg"></div>
       <div class="modal-actions">
         ${!isEdit ? `<button class="btn-secondary" id="btnPreview" type="button">${icon('eye', 'icon-sm')} Preview</button>` : ''}
@@ -1288,6 +1303,92 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
   const currencySel = root.querySelector('#f_currency');
   const attnInput = root.querySelector('#f_attn');
   const exRateInput = root.querySelector('#f_exrate');
+
+  // ---------- Lampiran ----------
+  // Invoice baru: file dipilih dulu secara lokal (pendingFiles), baru benar-benar
+  // diunggah ke server setelah invoice berhasil disimpan dan punya id.
+  // Invoice existing (edit): diunggah/dihapus langsung ke server saat itu juga.
+  // (Form edit hanya pernah dibuka untuk invoice yang belum disetujui — lihat
+  // window.editInvoice — jadi lampiran di sini selalu bisa diubah selama form terbuka.)
+  let pendingFiles = [];
+  const attachWrap = root.querySelector('#attachListWrap');
+  const attachInput = root.querySelector('#attachFileInput');
+  const attachAddBtn = root.querySelector('#btnAttachAdd');
+
+  function renderPendingAttachments() {
+    if (pendingFiles.length === 0) {
+      attachWrap.innerHTML = `<div class="sub" style="color:var(--muted)">Belum ada lampiran dipilih.</div>`;
+      return;
+    }
+    attachWrap.innerHTML = pendingFiles.map((f, i) => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px">
+        <span style="flex:1;word-break:break-all">${f.name} <span class="sub" style="font-size:11px">(${formatBytes(f.size)})</span></span>
+        <button class="btn-danger btn-icon" type="button" data-remove-pending="${i}">${icon('x', 'icon-sm')}</button>
+      </div>`).join('');
+    attachWrap.querySelectorAll('[data-remove-pending]').forEach(btn => {
+      btn.onclick = () => { pendingFiles.splice(+btn.dataset.removePending, 1); renderPendingAttachments(); };
+    });
+  }
+
+  async function renderExistingAttachments() {
+    attachWrap.innerHTML = `<div class="sub">Memuat lampiran...</div>`;
+    try {
+      const list = await api(`/api/invoices/${existing.id}/attachments`);
+      if (list.length === 0) {
+        attachWrap.innerHTML = `<div class="sub" style="color:var(--muted)">Belum ada lampiran.</div>`;
+        return;
+      }
+      attachWrap.innerHTML = list.map(a => `
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px">
+          <span style="flex:1;word-break:break-all">${a.filename} <span class="sub" style="font-size:11px">(${formatBytes(a.size)})</span></span>
+          <button class="btn-secondary btn-icon" type="button" onclick="window.open('/api/attachments/${a.id}/download','_blank')">${icon('eye', 'icon-sm')}</button>
+          <button class="btn-danger btn-icon" type="button" data-del-attach="${a.id}">${icon('trash', 'icon-sm')}</button>
+        </div>`).join('');
+      attachWrap.querySelectorAll('[data-del-attach]').forEach(btn => {
+        btn.onclick = async () => {
+          if (!confirm('Hapus lampiran ini?')) return;
+          btn.disabled = true;
+          try {
+            await api(`/api/attachments/${btn.dataset.delAttach}`, { method: 'DELETE' });
+            await renderExistingAttachments();
+          } catch (e) {
+            root.querySelector('#formError').textContent = e.message;
+            btn.disabled = false;
+          }
+        };
+      });
+    } catch (e) {
+      attachWrap.innerHTML = `<div class="sub" style="color:var(--danger)">Gagal memuat lampiran.</div>`;
+    }
+  }
+
+  if (attachAddBtn) attachAddBtn.onclick = () => attachInput.click();
+  if (attachInput) {
+    attachInput.onchange = async (e) => {
+      const files = Array.from(e.target.files);
+      e.target.value = '';
+      if (files.length === 0) return;
+      if (isEdit) {
+        const fd = new FormData();
+        files.forEach(f => fd.append('files', f));
+        const original = attachAddBtn.innerHTML;
+        attachAddBtn.disabled = true; attachAddBtn.innerHTML = spinner() + ' Mengunggah...';
+        try {
+          await api(`/api/invoices/${existing.id}/attachments`, { method: 'POST', body: fd });
+          await renderExistingAttachments();
+        } catch (err) {
+          root.querySelector('#formError').textContent = err.message;
+        } finally {
+          attachAddBtn.disabled = false; attachAddBtn.innerHTML = original;
+        }
+      } else {
+        pendingFiles.push(...files);
+        renderPendingAttachments();
+      }
+    };
+  }
+
+  if (isEdit) renderExistingAttachments(); else renderPendingAttachments();
 
   function itemValutaText(it) {
     const isIDR = currencySel.value === 'IDR';
@@ -1492,7 +1593,16 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
       if (isEdit) {
         await api(`/api/invoices/${existing.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       } else {
-        await api('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const res = await api('/api/invoices', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (pendingFiles.length > 0) {
+          const fd = new FormData();
+          pendingFiles.forEach(f => fd.append('files', f));
+          try {
+            await api(`/api/invoices/${res.id}/attachments`, { method: 'POST', body: fd });
+          } catch (attachErr) {
+            alert('Invoice tersimpan, tapi gagal mengunggah sebagian lampiran: ' + attachErr.message);
+          }
+        }
       }
       onSaved();
     } catch (e) {

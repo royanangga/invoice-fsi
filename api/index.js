@@ -453,8 +453,13 @@ app.post('/api/invoices/:id/attachments', handleAttachmentUpload, async (req, re
     const files = req.files || [];
     if (files.length === 0) return res.status(400).json({ error: 'File tidak ditemukan' });
     const supabase = getSupabase();
-    const { data: inv } = await supabase.from('invoices').select('id').eq('id', req.params.id).single();
+    const { data: inv } = await supabase.from('invoices').select('id, approval_status').eq('id', req.params.id).single();
     if (!inv) return res.status(404).json({ error: 'Invoice tidak ditemukan' });
+    // Invoice yang sudah disetujui terkunci total, termasuk lampirannya — sama seperti
+    // aturan edit invoice di PUT /api/invoices/:id.
+    if (inv.approval_status === 'approved') {
+      return res.status(403).json({ error: 'Invoice ini sudah disetujui Manager dan terkunci — lampiran tidak bisa ditambah. Batalkan approval-nya dulu kalau perlu menambah lampiran.' });
+    }
     const rows = files.map(f => ({
       invoice_id: req.params.id,
       filename: f.originalname,
@@ -489,6 +494,12 @@ app.get('/api/attachments/:id/download', async (req, res) => {
 app.delete('/api/attachments/:id', async (req, res) => {
   try {
     const supabase = getSupabase();
+    const { data: att } = await supabase.from('invoice_attachments').select('id, invoice_id').eq('id', req.params.id).single();
+    if (!att) return res.status(404).json({ error: 'Lampiran tidak ditemukan' });
+    const { data: inv } = await supabase.from('invoices').select('approval_status').eq('id', att.invoice_id).single();
+    if (inv && inv.approval_status === 'approved') {
+      return res.status(403).json({ error: 'Invoice ini sudah disetujui Manager dan terkunci — lampiran tidak bisa dihapus. Batalkan approval-nya dulu kalau perlu menghapus lampiran.' });
+    }
     const { error } = await supabase.from('invoice_attachments').delete().eq('id', req.params.id);
     if (error) throw error;
     res.json({ ok: true });
