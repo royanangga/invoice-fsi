@@ -8,10 +8,13 @@ const { importXlsBuffer } = require('../lib/importXls');
 const { COOKIE_NAME, hashPassword, verifyPassword, signToken, requireAuth, requireRole } = require('../lib/auth');
 
 const app = express();
+// CATATAN PENTING (Vercel): Serverless Function di Vercel punya batas ukuran body request
+// yang KERAS di sekitar 4.5MB dan TIDAK BISA dinaikkan lewat pengaturan Express/body-parser
+// manapun — ini batas platform, bukan batas aplikasi. Karena itu limit lampiran di bawah ini
+// sengaja dijaga jauh di bawah 4.5MB (bukan 10-15MB seperti sebelumnya), supaya upload lampiran
+// & preview invoice baru tidak gagal dengan error "FUNCTION_PAYLOAD_TOO_LARGE".
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-// Limit dinaikkan dari 4mb supaya payload preview invoice baru (yang menyertakan lampiran
-// dalam bentuk base64 sebelum invoice tersimpan) tidak kepotong — lihat POST /api/invoices/preview.
-app.use(express.json({ limit: '20mb' }));
+app.use(express.json({ limit: '4mb' }));
 app.use(cookieParser());
 
 const cookieOpts = {
@@ -425,24 +428,33 @@ app.delete('/api/invoices/:id', async (req, res) => {
 // ---------- Lampiran invoice (dokumen pendukung: PO, bukti transfer, kwitansi, dll) ----------
 // Disimpan sebagai base64 langsung di tabel (bukan Supabase Storage) supaya konsisten
 // dengan pola penyimpanan file lain di app ini (logo & tanda tangan juga base64).
+// Batas ukuran sengaja kecil (bukan 10-15MB) karena harus muat di bawah limit keras
+// Vercel Serverless Function (~4.5MB per request) — lihat catatan di atas file.
+const MAX_ATTACHMENT_FILE = 3 * 1024 * 1024; // 3MB per file
+const MAX_ATTACHMENT_TOTAL = 3.5 * 1024 * 1024; // 3.5MB gabungan per kali unggah
 const uploadAttachments = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  limits: { fileSize: MAX_ATTACHMENT_FILE, files: 5 },
   fileFilter: (req, file, cb) => {
-    const allowed = [
-      'application/pdf', 'image/jpeg', 'image/png', 'image/webp',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel',
-      'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    ];
+    const allowed = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
     if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error(`Tipe file "${file.mimetype}" tidak didukung. Gunakan PDF, JPG, PNG, WEBP, Excel, atau Word.`));
+    else cb(new Error(`Tipe file "${file.mimetype}" tidak didukung. Lampiran hanya boleh PDF atau gambar (JPG/PNG/WEBP).`));
   }
 });
 // Dibungkus manual (bukan langsung dipasang sebagai middleware) supaya error dari
 // fileFilter/limit multer dikembalikan sebagai JSON rapi, bukan halaman error default Express.
 function handleAttachmentUpload(req, res, next) {
   uploadAttachments.array('files', 5)(req, res, (err) => {
-    if (err) return res.status(400).json({ error: err.message });
+    if (err) {
+      const msg = err.code === 'LIMIT_FILE_SIZE'
+        ? `Ukuran file maksimal ${(MAX_ATTACHMENT_FILE / 1024 / 1024).toFixed(0)}MB per file.`
+        : err.message;
+      return res.status(400).json({ error: msg });
+    }
+    const totalSize = (req.files || []).reduce((sum, f) => sum + f.size, 0);
+    if (totalSize > MAX_ATTACHMENT_TOTAL) {
+      return res.status(400).json({ error: `Total ukuran file yang diunggah sekaligus maksimal ${(MAX_ATTACHMENT_TOTAL / 1024 / 1024).toFixed(1)}MB (batas platform hosting). Coba unggah beberapa file secara terpisah/bergantian.` });
+    }
     next();
   });
 }
@@ -695,7 +707,13 @@ function attachmentPageHtml(att) {
   const mime = att.mimetype || '';
   const safeName = (att.filename || 'Lampiran').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   let body;
-  if (mime.startsWith('image/')) {
+  if (!att.data) {
+    // Terjadi khusus di halaman Preview (invoice belum tersimpan): file ini sengaja tidak
+    // disertakan datanya karena akan membuat payload preview kelewat batas ukuran request
+    // hosting — lihat pendingFiles/buildPreviewAttachments di public/app.js. Filenya sendiri
+    // tetap tersimpan normal begitu invoice benar-benar disimpan.
+    body = `<div class="attach-unsupported">Lampiran ini terlalu besar untuk ditampilkan di layar Preview.<br>File tetap akan tersimpan &amp; tampil lengkap begitu invoice disimpan / dicetak.</div>`;
+  } else if (mime.startsWith('image/')) {
     body = `<img src="data:${mime};base64,${att.data}">`;
   } else if (mime === 'application/pdf') {
     body = `<embed src="data:${mime};base64,${att.data}" type="application/pdf">`;

@@ -689,6 +689,87 @@ function fileToBase64(file) {
   });
 }
 
+/* ---------- Batas & auto-kompres lampiran (hanya PDF & gambar) ---------- */
+const ATTACH_ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+const ATTACH_ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp';
+const MAX_ATTACH_FILE = 3 * 1024 * 1024; // 3MB per file — batas platform hosting
+const MAX_ATTACH_TOTAL = 3.5 * 1024 * 1024; // 3.5MB gabungan per kali unggah
+
+// Kompres gambar dengan menurunkan kualitas & lalu ukuran secara bertahap sampai muat
+// di bawah maxBytes. Selalu dikeluarkan sebagai JPEG (rasio kompresi paling baik).
+async function compressImageFile(file, maxBytes) {
+  const objUrl = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((resolve, reject) => {
+      const el = new Image();
+      el.onload = () => resolve(el);
+      el.onerror = () => reject(new Error('Gagal membaca gambar ' + file.name));
+      el.src = objUrl;
+    });
+    let quality = 0.85;
+    let scale = 1;
+    let blob = null;
+    for (let attempt = 0; attempt < 9; attempt++) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
+      if (blob && blob.size <= maxBytes) break;
+      if (quality > 0.5) quality -= 0.12; else scale *= 0.75;
+    }
+    if (!blob || blob.size >= file.size) return file;
+    const newName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    return new File([blob], newName, { type: 'image/jpeg', lastModified: Date.now() });
+  } catch (e) {
+    return file;
+  } finally {
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
+// Kompres PDF pakai pdf-lib (re-save dengan object streams). Ini best-effort — cukup
+// ampuh untuk PDF yang gemuk karena metadata/struktur berulang, tapi PDF hasil scan
+// foto beresolusi tinggi belum tentu bisa turun banyak lewat cara ini.
+async function compressPdfFile(file, maxBytes) {
+  if (typeof PDFLib === 'undefined') return file;
+  try {
+    const bytes = await file.arrayBuffer();
+    const pdfDoc = await PDFLib.PDFDocument.load(bytes, { updateMetadata: false, ignoreEncryption: true });
+    const out = await pdfDoc.save({ useObjectStreams: true });
+    if (out.byteLength >= file.size) return file;
+    return new File([out], file.name, { type: 'application/pdf', lastModified: Date.now() });
+  } catch (e) {
+    return file;
+  }
+}
+
+// Validasi tipe + auto-kompres kalau kegedean. Mengembalikan { ok: File[], rejectedType: string[], stillTooBig: string[] }.
+async function prepareAttachmentFiles(files) {
+  const ok = [], rejectedType = [], stillTooBig = [];
+  for (const f of files) {
+    if (!ATTACH_ALLOWED_TYPES.includes(f.type)) {
+      rejectedType.push(f.name);
+      continue;
+    }
+    let out = f;
+    if (out.size > MAX_ATTACH_FILE) {
+      out = f.type.startsWith('image/') ? await compressImageFile(f, MAX_ATTACH_FILE) : await compressPdfFile(f, MAX_ATTACH_FILE);
+    }
+    if (out.size > MAX_ATTACH_FILE) stillTooBig.push(f.name);
+    else ok.push(out);
+  }
+  return { ok, rejectedType, stillTooBig };
+}
+
+function attachRejectionMessage({ rejectedType, stillTooBig }) {
+  const parts = [];
+  if (rejectedType.length) parts.push(`Tipe file tidak didukung (hanya PDF & gambar): ${rejectedType.join(', ')}`);
+  if (stillTooBig.length) parts.push(`Masih terlalu besar setelah dikompres otomatis (maks ${(MAX_ATTACH_FILE / 1024 / 1024).toFixed(0)}MB): ${stillTooBig.join(', ')}`);
+  return parts.join(' — ');
+}
+
 window.openAttachments = async (invId) => {
   const cached = state.invoices.find(i => i.id === invId) || (state.approvalList || []).find(i => i.id === invId);
   const inv = cached || await api(`/api/invoices/${invId}`);
@@ -700,9 +781,9 @@ window.openAttachments = async (invId) => {
       <h2>${icon('paperclip', 'icon-lg')} Lampiran — ${inv.invoice_no || '(Belum diisi)'}</h2>
       ${isLocked
         ? `<div class="sub" style="margin:-6px 0 14px;color:var(--danger)">Invoice ini sudah disetujui Manager dan terkunci — lampiran hanya bisa dilihat. Batalkan approval-nya dulu di menu Approval kalau perlu menambah/menghapus lampiran.</div>`
-        : `<div class="sub" style="margin:-6px 0 14px">Dokumen pendukung invoice ini (PO, bukti transfer, kwitansi, dll). PDF/JPG/PNG/Excel/Word, maks 10MB per file.</div>`}
+        : `<div class="sub" style="margin:-6px 0 14px">Dokumen pendukung invoice ini (PO, bukti transfer, kwitansi, dll). Hanya PDF & gambar (JPG/PNG/WEBP), maks 3MB per file — file yang kegedean otomatis dikompres.</div>`}
       <div id="attachListWrap"><div class="sub">Memuat...</div></div>
-      ${isLocked ? '' : `<input type="file" id="attachFileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx" style="display:none">`}
+      ${isLocked ? '' : `<input type="file" id="attachFileInput" multiple accept="${ATTACH_ACCEPT}" style="display:none">`}
       <div id="attachError" class="error-msg"></div>
       <div class="modal-actions">
         ${isLocked ? '' : `<button class="btn-secondary btn-icon" id="btnAttachUpload" type="button">${icon('upload', 'icon-sm')} Tambah File</button>`}
@@ -759,13 +840,24 @@ window.openAttachments = async (invId) => {
     overlay.querySelector('#attachFileInput').onchange = async (e) => {
       const files = Array.from(e.target.files);
       if (files.length === 0) return;
-      const fd = new FormData();
-      files.forEach(f => fd.append('files', f));
       const btn = overlay.querySelector('#btnAttachUpload');
       const original = btn.innerHTML;
-      btn.disabled = true; btn.innerHTML = spinner() + ' Mengunggah...';
+      btn.disabled = true; btn.innerHTML = spinner() + ' Memproses...';
       overlay.querySelector('#attachError').textContent = '';
       try {
+        const { ok, rejectedType, stillTooBig } = await prepareAttachmentFiles(files);
+        if (rejectedType.length || stillTooBig.length) {
+          overlay.querySelector('#attachError').textContent = attachRejectionMessage({ rejectedType, stillTooBig });
+        }
+        if (ok.length === 0) return;
+        const totalSize = ok.reduce((s, f) => s + f.size, 0);
+        if (totalSize > MAX_ATTACH_TOTAL) {
+          overlay.querySelector('#attachError').textContent = `Total ukuran lampiran maksimal ${(MAX_ATTACH_TOTAL / 1024 / 1024).toFixed(1)}MB sekali unggah. Unggah beberapa file secara terpisah.`;
+          return;
+        }
+        btn.innerHTML = spinner() + ' Mengunggah...';
+        const fd = new FormData();
+        ok.forEach(f => fd.append('files', f));
         await api(`/api/invoices/${invId}/attachments`, { method: 'POST', body: fd });
         await renderAttachList();
       } catch (err) {
@@ -1285,9 +1377,9 @@ function invoiceFormFieldsHtml(existing) {
       <div id="totalsPreview" class="sub" style="margin-top:10px;font-size:12.5px;color:var(--navy);font-weight:600"></div>
 
       <div class="form-group" style="margin-top:16px">
-        <label style="font-size:12px;color:var(--muted);font-weight:600">Lampiran <span style="font-weight:400">(dokumen pendukung: PO, bukti transfer, kwitansi, dll — PDF/JPG/PNG/Excel/Word, maks 10MB/file)</span></label>
+        <label style="font-size:12px;color:var(--muted);font-weight:600">Lampiran <span style="font-weight:400">(dokumen pendukung: PO, bukti transfer, kwitansi, dll — hanya PDF & gambar, maks 3MB/file — file kegedean otomatis dikompres)</span></label>
         <div id="attachListWrap" style="margin:8px 0"></div>
-        <input type="file" id="attachFileInput" multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.xls,.xlsx,.doc,.docx" style="display:none">
+        <input type="file" id="attachFileInput" multiple accept="${ATTACH_ACCEPT}" style="display:none">
         <button class="btn-secondary btn-icon" id="btnAttachAdd" type="button">${icon('paperclip', 'icon-sm')} Tambah Lampiran</button>
       </div>
 
@@ -1376,22 +1468,37 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
       const files = Array.from(e.target.files);
       e.target.value = '';
       if (files.length === 0) return;
-      if (isEdit) {
-        const fd = new FormData();
-        files.forEach(f => fd.append('files', f));
-        const original = attachAddBtn.innerHTML;
-        attachAddBtn.disabled = true; attachAddBtn.innerHTML = spinner() + ' Mengunggah...';
-        try {
-          await api(`/api/invoices/${existing.id}/attachments`, { method: 'POST', body: fd });
-          await renderExistingAttachments();
-        } catch (err) {
-          root.querySelector('#formError').textContent = err.message;
-        } finally {
-          attachAddBtn.disabled = false; attachAddBtn.innerHTML = original;
+      const original = attachAddBtn.innerHTML;
+      attachAddBtn.disabled = true; attachAddBtn.innerHTML = spinner() + ' Memproses...';
+      root.querySelector('#formError').textContent = '';
+      try {
+        const { ok, rejectedType, stillTooBig } = await prepareAttachmentFiles(files);
+        if (rejectedType.length || stillTooBig.length) {
+          root.querySelector('#formError').textContent = attachRejectionMessage({ rejectedType, stillTooBig });
         }
-      } else {
-        pendingFiles.push(...files);
-        renderPendingAttachments();
+        if (ok.length === 0) return;
+        const existingTotal = isEdit ? 0 : pendingFiles.reduce((s, f) => s + f.size, 0);
+        const newTotal = ok.reduce((s, f) => s + f.size, 0);
+        if (existingTotal + newTotal > MAX_ATTACH_TOTAL) {
+          root.querySelector('#formError').textContent = `Total ukuran lampiran maksimal ${(MAX_ATTACH_TOTAL / 1024 / 1024).toFixed(1)}MB sekali unggah. Unggah beberapa file secara terpisah.`;
+          return;
+        }
+        if (isEdit) {
+          attachAddBtn.innerHTML = spinner() + ' Mengunggah...';
+          const fd = new FormData();
+          ok.forEach(f => fd.append('files', f));
+          try {
+            await api(`/api/invoices/${existing.id}/attachments`, { method: 'POST', body: fd });
+            await renderExistingAttachments();
+          } catch (err) {
+            root.querySelector('#formError').textContent = err.message;
+          }
+        } else {
+          pendingFiles.push(...ok);
+          renderPendingAttachments();
+        }
+      } finally {
+        attachAddBtn.disabled = false; attachAddBtn.innerHTML = original;
       }
     };
   }
@@ -1546,12 +1653,23 @@ function wireInvoiceForm(root, existing, { onCancel, onSaved }) {
       previewBtn.innerHTML = spinner() + ' Memuat...';
       try {
         // Invoice baru belum tersimpan/punya id, jadi lampiran yang sudah dipilih (pendingFiles)
-        // dikirim langsung sebagai base64 supaya ikut tampil di preview juga.
-        payload.attachments = await Promise.all(pendingFiles.map(async f => ({
-          filename: f.name,
-          mimetype: f.type || 'application/octet-stream',
-          data: await fileToBase64(f)
-        })));
+        // dikirim sebagai base64 langsung di payload JSON supaya ikut tampil di preview juga.
+        // Base64 membengkakkan ukuran file ~33%, dan platform hosting (Vercel) punya batas
+        // keras ~4.5MB per request — jadi HANYA file yang muat aman di bawah batas itu yang
+        // benar-benar disertakan datanya; sisanya cukup dikirim nama filenya saja dan akan
+        // tampil sebagai halaman "terlalu besar untuk preview" (datanya tetap utuh & lengkap
+        // begitu invoice ini benar-benar disimpan).
+        const SAFE_PREVIEW_RAW_TOTAL = 2.5 * 1024 * 1024; // ~2.5MB mentah ≈ ~3.3MB setelah base64
+        let cumulative = 0;
+        payload.attachments = await Promise.all(pendingFiles.map(async f => {
+          const withinBudget = (cumulative + f.size) <= SAFE_PREVIEW_RAW_TOTAL;
+          if (withinBudget) cumulative += f.size;
+          return {
+            filename: f.name,
+            mimetype: f.type || 'application/octet-stream',
+            data: withinBudget ? await fileToBase64(f) : null
+          };
+        }));
         const res = await fetch('/api/invoices/preview', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const html = await res.text();
         openPreviewPanel('new');
