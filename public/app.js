@@ -692,8 +692,18 @@ function fileToBase64(file) {
 /* ---------- Batas & auto-kompres lampiran (hanya PDF & gambar) ---------- */
 const ATTACH_ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
 const ATTACH_ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp';
+const ATTACH_EXT_MIME = { pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp' };
 const MAX_ATTACH_FILE = 3 * 1024 * 1024; // 3MB per file — batas platform hosting
 const MAX_ATTACH_TOTAL = 3.5 * 1024 * 1024; // 3.5MB gabungan per kali unggah
+
+// Sebagian browser/HP melaporkan file.type yang tidak baku (mis. "image/jpg" alih-alih
+// "image/jpeg", atau string kosong). Supaya tidak salah ditolak, tipe file dicocokkan lewat
+// ekstensi nama filenya juga. Return null kalau memang bukan PDF/gambar yang didukung.
+function resolveAttachmentMime(file) {
+  if (ATTACH_ALLOWED_TYPES.includes(file.type)) return file.type;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  return ATTACH_EXT_MIME[ext] || null;
+}
 
 // Kompres gambar dengan menurunkan kualitas & lalu ukuran secara bertahap sampai muat
 // di bawah maxBytes. Selalu dikeluarkan sebagai JPEG (rasio kompresi paling baik).
@@ -706,10 +716,10 @@ async function compressImageFile(file, maxBytes) {
       el.onerror = () => reject(new Error('Gagal membaca gambar ' + file.name));
       el.src = objUrl;
     });
-    let quality = 0.85;
+    let quality = 0.82;
     let scale = 1;
     let blob = null;
-    for (let attempt = 0; attempt < 9; attempt++) {
+    for (let attempt = 0; attempt < 12; attempt++) {
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(img.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(img.naturalHeight * scale));
@@ -717,9 +727,9 @@ async function compressImageFile(file, maxBytes) {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', quality));
       if (blob && blob.size <= maxBytes) break;
-      if (quality > 0.5) quality -= 0.12; else scale *= 0.75;
+      if (quality > 0.4) quality -= 0.1; else scale *= 0.7;
     }
-    if (!blob || blob.size >= file.size) return file;
+    if (!blob) return file;
     const newName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
     return new File([blob], newName, { type: 'image/jpeg', lastModified: Date.now() });
   } catch (e) {
@@ -729,17 +739,56 @@ async function compressImageFile(file, maxBytes) {
   }
 }
 
-// Kompres PDF pakai pdf-lib (re-save dengan object streams). Ini best-effort — cukup
-// ampuh untuk PDF yang gemuk karena metadata/struktur berulang, tapi PDF hasil scan
-// foto beresolusi tinggi belum tentu bisa turun banyak lewat cara ini.
+// Kompres PDF dua tahap:
+// 1) Re-save cepat pakai pdf-lib (rapikan struktur objek) — kadang cukup untuk PDF yang
+//    gemuk karena metadata/struktur berulang.
+// 2) Kalau masih kegedean (biasanya karena isinya hasil scan/foto beresolusi tinggi),
+//    render tiap halaman jadi gambar lewat pdf.js lalu susun ulang jadi PDF baru dengan
+//    gambar terkompresi JPEG — ini yang benar-benar memangkas ukuran file scan besar.
 async function compressPdfFile(file, maxBytes) {
   if (typeof PDFLib === 'undefined') return file;
+  let bytes;
   try {
-    const bytes = await file.arrayBuffer();
+    bytes = new Uint8Array(await file.arrayBuffer());
     const pdfDoc = await PDFLib.PDFDocument.load(bytes, { updateMetadata: false, ignoreEncryption: true });
-    const out = await pdfDoc.save({ useObjectStreams: true });
-    if (out.byteLength >= file.size) return file;
-    return new File([out], file.name, { type: 'application/pdf', lastModified: Date.now() });
+    const lightPass = await pdfDoc.save({ useObjectStreams: true });
+    if (lightPass.byteLength <= maxBytes) {
+      return new File([lightPass], file.name, { type: 'application/pdf', lastModified: Date.now() });
+    }
+  } catch (e) {
+    // lanjut ke tahap render kalau pdf-lib gagal baca (mis. PDF agak rusak/nonstandar)
+  }
+
+  if (typeof pdfjsLib === 'undefined') return file;
+  try {
+    const srcDoc = await pdfjsLib.getDocument({ data: bytes.slice() }).promise;
+    let quality = 0.55;
+    let renderScale = 1.4;
+    let rebuiltBytes = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const newPdf = await PDFLib.PDFDocument.create();
+      for (let p = 1; p <= srcDoc.numPages; p++) {
+        const page = await srcDoc.getPage(p);
+        const viewport = page.getViewport({ scale: renderScale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(viewport.width));
+        canvas.height = Math.max(1, Math.round(viewport.height));
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const jpegDataUrl = canvas.toDataURL('image/jpeg', quality);
+        const jpegBytes = Uint8Array.from(atob(jpegDataUrl.split(',')[1]), c => c.charCodeAt(0));
+        const jpegImage = await newPdf.embedJpg(jpegBytes);
+        const pdfPage = newPdf.addPage([canvas.width, canvas.height]);
+        pdfPage.drawImage(jpegImage, { x: 0, y: 0, width: canvas.width, height: canvas.height });
+      }
+      rebuiltBytes = await newPdf.save();
+      if (rebuiltBytes.byteLength <= maxBytes) break;
+      if (quality > 0.3) quality -= 0.1; else renderScale *= 0.75;
+    }
+    if (rebuiltBytes) {
+      return new File([rebuiltBytes], file.name, { type: 'application/pdf', lastModified: Date.now() });
+    }
+    return file;
   } catch (e) {
     return file;
   }
@@ -749,13 +798,16 @@ async function compressPdfFile(file, maxBytes) {
 async function prepareAttachmentFiles(files) {
   const ok = [], rejectedType = [], stillTooBig = [];
   for (const f of files) {
-    if (!ATTACH_ALLOWED_TYPES.includes(f.type)) {
+    const mime = resolveAttachmentMime(f);
+    if (!mime) {
       rejectedType.push(f.name);
       continue;
     }
-    let out = f;
+    // Normalisasi tipe file (kalau browser melaporkan tipe yang tidak baku) supaya lolos
+    // whitelist di server juga.
+    let out = (f.type === mime) ? f : new File([f], f.name, { type: mime, lastModified: f.lastModified || Date.now() });
     if (out.size > MAX_ATTACH_FILE) {
-      out = f.type.startsWith('image/') ? await compressImageFile(f, MAX_ATTACH_FILE) : await compressPdfFile(f, MAX_ATTACH_FILE);
+      out = mime.startsWith('image/') ? await compressImageFile(out, MAX_ATTACH_FILE) : await compressPdfFile(out, MAX_ATTACH_FILE);
     }
     if (out.size > MAX_ATTACH_FILE) stillTooBig.push(f.name);
     else ok.push(out);
